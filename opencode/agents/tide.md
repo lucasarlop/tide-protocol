@@ -106,14 +106,27 @@ Use títulos claros, fronteiras explícitas e validação proporcional ao risco.
 Ao parar a Wave, salve snapshot:
 
 ```bash
-tide wave snapshot <id> --status parked --note "..." --validation "..."
+tide wave park <id> --note "implementação pronta para validação"
 ```
 
-Ou:
+Registre evidência quando houver:
 
 ```bash
-tide wave park <id> --validation "..."
+tide wave validate <id> --summary "teste escopado passou" --command "pytest ..." --result "passed" --status validated
 ```
+
+## Comandos de projeto
+
+Para comandos específicos do projeto, prefira o catálogo Tide:
+
+```bash
+tide project commands
+tide project command <nome>
+tide project run <nome> --dry-run
+tide project run <nome> --yes
+```
+
+Comando sensível, mutável, banco, SSH, produção, reprocessamento ou destructive exige OK explícito do supervisor antes de executar sem `--dry-run`.
 
 ## Regra principal
 
