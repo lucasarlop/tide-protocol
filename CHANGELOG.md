@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.0] — 2026-06-16
+## [Unreleased] — 2026-06-16
 
 ### Adicionado
 - CI com validação de sintaxe do CLI, testes unitários e dry-run do instalador.
@@ -11,7 +11,7 @@
 - Instalador agora copia o módulo MCP para a configuração global do OpenCode.
 
 ### Observações
-- Esta versão fecha o MVP operacional do Tide Protocol: Waves, catálogo de comandos, runtime supervisionado, agentes globais, CI e MCP seguro de contexto.
+- Estas mudanças preparam a próxima versão estável acima de 0.4.0.
 
 ## [0.4.0] — 2026-06-16
 
