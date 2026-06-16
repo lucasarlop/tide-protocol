@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# tide — CLI local do Tide Protocol.
+set -euo pipefail
+
+VERSION="0.1.0"
+WAVES_DIR=".opencode/waves"
+
+usage() {
+  cat <<EOF
+Tide Protocol CLI $VERSION
+
+Uso:
+  tide init
+  tide create-wave <titulo>
+  tide snapshot <TIDE-0001>
+  tide waves
+  tide wave <TIDE-0001>
+  tide approve <TIDE-0001>
+  tide reject <TIDE-0001>
+
+Notas:
+  - Waves ficam em .opencode/waves/ e devem ser ignoradas pelo Git.
+  - approve cria commit apenas para os arquivos registrados em files.json.
+  - reject aplica o reverse patch salvo em wave.diff.
+EOF
+}
+
+need_git() {
+  git rev-parse --show-toplevel >/dev/null 2>&1 || {
+    echo "erro: rode dentro de um repositório git" >&2
+    exit 1
+  }
+}
+need_python() {
+  command -v python3 >/dev/null 2>&1 || {
+    echo "erro: python3 é necessário para esta operação" >&2
+    exit 1
+  }
+}
+ensure_waves_dir() {
+  mkdir -p "$WAVES_DIR"
+  touch "$WAVES_DIR/.gitkeep"
+  if [ -f .gitignore ]; then
+    grep -qxF "$WAVES_DIR/" .gitignore || printf '%s\n' "$WAVES_DIR/" >> .gitignore
+  else
+    printf '%s\n' "$WAVES_DIR/" > .gitignore
+  fi
+}
+next_id() {
+  local last n
+  last="$(find "$WAVES_DIR" -maxdepth 1 -type d -name 'TIDE-[0-9][0-9][0-9][0-9]' 2>/dev/null | sed 's#^.*/TIDE-##' | sort -n | tail -1 || true)"
+  n=$((10#${last:-0} + 1))
+  printf 'TIDE-%04d\n' "$n"
+}
+set_status() {
+  local id="$1" status="$2" file="$WAVES_DIR/$id/wave.md" tmp
+  [ -f "$file" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
+  tmp="$(mktemp)"
+  awk -v s="$status" 'BEGIN{done=0} /^status:/ && done==0 {print "status: " s; done=1; next} {print}' "$file" > "$tmp"
+  mv "$tmp" "$file"
+}
+get_field() {
+  local id="$1" field="$2" file="$WAVES_DIR/$id/wave.md"
+  awk -F': ' -v key="$field" '$1 == key {print substr($0, length(key)+3); exit}' "$file"
+}
+cmd_init() {
+  need_git
+  ensure_waves_dir
+  echo "ok: $WAVES_DIR/ preparado e ignorado no Git"
+}
+cmd_create_wave() {
+  need_git
+  local title="${*:-}"
+  [ -n "$title" ] || { echo "erro: informe um título" >&2; exit 1; }
+  ensure_waves_dir
+  local id dir base
+  id="$(next_id)"
+  dir="$WAVES_DIR/$id"
+  base="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  mkdir -p "$dir"
+  cat > "$dir/wave.md" <<EOF
+---
+id: $id
+title: $title
+status: running
+type: code
+risk: unknown
+created_at: $(date -Iseconds)
+base_ref: $base
+depends_on: []
+---
+
+## Intenção
+$title
+
+## Fronteira
+- Pode tocar: a definir pelo agente.
+- Não pode tocar: qualquer coisa fora da Wave sem checkpoint.
+
+## Durabilidade
+A mudança deve falhar bem, orientar bem e deixar claro onde ajustar no futuro.
+
+## Validação planejada
+A definir antes de considerar a Wave pronta.
+
+## Evidência
+Pendente.
+
+## Resultado
+Pendente.
+
+## Supervisor
+Aguardando approve, reject, continuação ou acúmulo.
+EOF
+  printf '[]\n' > "$dir/files.json"
+  : > "$dir/wave.diff"
+  printf '{}\n' > "$dir/validations.json"
+  echo "$id"
+}
+cmd_snapshot() {
+  need_git; need_python
+  local id="$1" dir="$WAVES_DIR/$id"
+  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
+  git diff > "$dir/wave.diff"
+  git diff --name-only | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()], indent=2, ensure_ascii=False))' > "$dir/files.json"
+  set_status "$id" "parked"
+  echo "ok: snapshot salvo para $id"
+}
+cmd_waves() {
+  need_git
+  if [ ! -d "$WAVES_DIR" ]; then
+    echo "nenhuma Wave encontrada; rode: tide init"
+    return
+  fi
+  local found=0
+  for dir in "$WAVES_DIR"/TIDE-[0-9][0-9][0-9][0-9]; do
+    [ -d "$dir" ] || continue
+    found=1
+    local id status title
+    id="$(basename "$dir")"
+    status="$(get_field "$id" status || true)"
+    title="$(get_field "$id" title || true)"
+    printf '%s  %-10s  %s\n' "$id" "${status:-unknown}" "${title:-sem título}"
+  done
+  [ "$found" = "1" ] || echo "nenhuma Wave encontrada"
+}
+cmd_wave() {
+  local id="$1" file="$WAVES_DIR/$id/wave.md"
+  [ -f "$file" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
+  cat "$file"
+}
+cmd_approve() {
+  need_git; need_python
+  local id="$1" dir="$WAVES_DIR/$id" files="$dir/files.json"
+  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
+  [ -f "$files" ] || { echo "erro: $files não existe; rode tide snapshot $id" >&2; exit 1; }
+  local status title count
+  status="$(get_field "$id" status || true)"
+  case "$status" in
+    rejected|committed) echo "erro: $id já está $status" >&2; exit 1 ;;
+  esac
+  count="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$files")"
+  [ "$count" != "0" ] || { echo "erro: $id não tem arquivos registrados" >&2; exit 1; }
+  python3 -c 'import json,sys; [print(p) for p in json.load(open(sys.argv[1]))]' "$files" | while IFS= read -r path; do
+    [ -n "$path" ] && git add -- "$path"
+  done
+  title="$(get_field "$id" title || echo "Wave")"
+  git commit -m "chore(tide): $title [$id]" -m "Wave: $id" >/dev/null
+  set_status "$id" "committed"
+  echo "ok: $id commitada"
+  git log -1 --oneline
+}
+cmd_reject() {
+  need_git
+  local id="$1" dir="$WAVES_DIR/$id" patch="$dir/wave.diff"
+  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
+  [ -s "$patch" ] || { echo "erro: $id não tem patch salvo para reverter" >&2; exit 1; }
+  git apply -R --check "$patch" || {
+    echo "erro: não foi possível reverter $id de forma limpa" >&2
+    echo "nada foi alterado; resolva conflitos ou rejeite Waves dependentes primeiro" >&2
+    exit 1
+  }
+  git apply -R "$patch"
+  set_status "$id" "rejected"
+  echo "ok: $id rejeitada"
+}
+
+cmd="${1:-}"
+shift || true
+case "$cmd" in
+  init) cmd_init "$@" ;;
+  create-wave) cmd_create_wave "$@" ;;
+  snapshot) [ $# -eq 1 ] || { usage; exit 1; }; cmd_snapshot "$1" ;;
+  waves) cmd_waves "$@" ;;
+  wave) [ $# -eq 1 ] || { usage; exit 1; }; cmd_wave "$1" ;;
+  approve) [ $# -eq 1 ] || { usage; exit 1; }; cmd_approve "$1" ;;
+  reject) [ $# -eq 1 ] || { usage; exit 1; }; cmd_reject "$1" ;;
+  -h|--help|help|"") usage ;;
+  --version|version) echo "$VERSION" ;;
+  *) echo "erro: comando desconhecido: $cmd" >&2; usage; exit 1 ;;
+esac
