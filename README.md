@@ -1,67 +1,100 @@
 # Tide Protocol
 
-Tide Protocol é um protocolo global para desenvolvimento assistido por IA no OpenCode, baseado em **Waves identificáveis**, fronteiras explícitas, código durável, validação proporcional ao risco e supervisão humana.
+Tide Protocol é um runtime de desenvolvimento assistido por IA para OpenCode, baseado em **Waves identificáveis**, **fronteiras explícitas**, **código durável**, **validação proporcional ao risco** e **supervisão humana**.
 
-A metáfora central é simples: o software é o mar; cada Wave é um movimento limitado sobre ele. Algumas Waves são aprovadas, outras rejeitadas, outras ficam estacionadas até serem agrupadas em um commit maior.
+O software é o mar. As Waves são movimentos controlados sobre ele: podem investigar, implementar, validar, operar, revisar, estacionar, ser aprovadas, rejeitadas ou agrupadas em commits.
 
-## Princípios
+## Ideia central
 
-- O código atual é a fonte da verdade.
-- Cada Wave tem intenção, fronteira, evidência e checkpoint.
-- O agente age com liberdade dentro da fronteira e para ao precisar cruzá-la.
-- Código deve durar: falhar bem, orientar bem e ser intuitivo para manutenção futura.
-- Validação deve ser proporcional ao risco.
-- Revisores entram por risco, não por ritual.
-- Commit nunca é automático; depende de `/approve <wave-id>` ou pedido explícito do supervisor.
+O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
 
-## Conceitos
+1. o agente entende a intenção;
+2. define a menor Wave segura;
+3. declara fronteiras e validação;
+4. age com liberdade dentro da fronteira;
+5. para se precisar cruzar a fronteira;
+6. entrega evidência ao supervisor;
+7. o supervisor decide se aprova, rejeita, acumula ou commita.
 
-### Wave
+## Vocabulário
 
-Unidade identificável de movimento sobre o software.
+- **Mar**: o software atual. A fonte da verdade é o código presente, não histórico de decisões.
+- **Wave**: unidade identificável de movimento sobre o software. Exemplo: `TIDE-0001`.
+- **Fronteira**: o que a Wave pode tocar, executar ou decidir.
+- **Evidência**: prova proporcional ao risco: teste, comando, diff, log, checklist ou validação manual.
+- **Checkpoint**: ponto em que o supervisor decide o próximo movimento.
+- **Código durável**: código que falha bem, orienta bem, opera bem e deixa claro onde ajustar.
 
-Exemplo de ID:
+## Waves
+
+Toda Wave relevante deve ter representação local em arquivo:
 
 ```txt
-TIDE-0001
+.opencode/waves/
+  registry.json
+  TIDE-0001/
+    wave.md
+    wave.diff
+    files.json
+    validations.json
 ```
 
-Uma Wave pode investigar, implementar, operar, validar ou revisar. Ela tem representação local em arquivo dentro de `.opencode/waves/`, que deve ser ignorado pelo Git.
+Esse diretório é estado operacional local e deve ficar ignorado pelo Git.
 
-### Fronteira
+Uma Wave pode ficar `parked`: concluída ou interrompida, mas ainda não aprovada nem rejeitada. Isso permite seguir para outras Waves e decidir depois se elas serão agrupadas, rejeitadas ou commitadas separadamente.
 
-Define o que a Wave pode tocar, quais comandos pode executar e quando deve parar.
-
-### Evidência
-
-Prova proporcional ao risco: teste, comando, diff, checklist, log, validação manual ou execução supervisionada.
-
-### Supervisor
-
-A pessoa responsável por aprovar, rejeitar, acumular ou commitar Waves.
-
-## Comandos planejados
+## Comandos principais
 
 ```txt
 /waves
+  Lista Waves abertas, estacionadas, rejeitadas e commitadas.
+
 /wave <wave-id>
+  Mostra detalhes de uma Wave.
+
 /approve <wave-id>
+  Adiciona as modificações da Wave em um commit com mensagem gerada automaticamente contendo o ID.
+
 /reject <wave-id>
-/btw <pergunta>
-/teach <tema>
+  Desfaz as alterações da Wave, sem destruir mudanças de outras Waves silenciosamente.
 ```
 
-`/approve <wave-id>` deve criar commit com as alterações da Wave e mensagem contendo o ID. `/reject <wave-id>` deve desfazer apenas as alterações daquela Wave, sem destruir mudanças de outras Waves.
+`/approve` e `/reject` são opcionais no fim de cada Wave. O supervisor pode continuar trabalhando e decidir depois.
 
-## Arquitetura
+## Instalação
 
-O Tide é pensado como instalação global:
+```bash
+git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
+cd /tmp/tide-protocol
+bash install.sh
+```
 
-- agentes e comandos globais do OpenCode;
-- skills globais reutilizáveis;
-- MCP opcional para comandos do projeto, snapshots de Waves, integração com code-review-graph e execução segura;
-- estado local por projeto em `.opencode/waves/`.
+Por padrão, o instalador copia agentes, comandos, skills e regras para a configuração global do OpenCode em `~/.config/opencode/`, evitando poluir projetos.
 
-## Estado deste repositório
+Depois disso:
 
-Este repositório está na fundação inicial do protocolo. A primeira implementação prioriza agentes, comandos, rules, templates e o contrato das Waves antes do MCP completo.
+```bash
+cd qualquer-projeto
+opencode
+```
+
+O Tide estará disponível globalmente.
+
+## Estrutura
+
+```txt
+tide-protocol/
+  install.sh
+  bin/tide
+  opencode/
+    agents/
+    commands/
+    rules/
+    skills/
+```
+
+## Status
+
+Versão inicial: `0.1.0`.
+
+Esta primeira versão implementa o bootstrap global do protocolo. MCP, integração profunda com code-review-graph e runtime real de patches por Wave ficam para próximas Waves.
