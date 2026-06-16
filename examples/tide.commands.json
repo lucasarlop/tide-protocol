@@ -1,0 +1,25 @@
+{
+  "commands": {
+    "regenerate_book": {
+      "description": "Regera um livro pelo ID.",
+      "command": "./scripts/books/regenerate.sh --book-id {book_id}",
+      "safety": "mutating",
+      "requires_ok": true,
+      "timeout": {
+        "hard_sec": 600,
+        "silence_sec": 60
+      },
+      "args": {
+        "book_id": {
+          "required": true,
+          "description": "ID do livro"
+        }
+      },
+      "validation": [
+        "verificar status do livro",
+        "verificar logs de erro",
+        "confirmar artefato gerado"
+      ]
+    }
+  }
+}
