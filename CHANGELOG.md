@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 2026-06-16
+## [0.5.0] — 2026-06-16
 
 ### Adicionado
 - CI com validação de sintaxe do CLI, testes unitários e dry-run do instalador.
@@ -13,8 +13,8 @@
 - Guia de catálogo de comandos do projeto em `docs/project-command-catalog.md`.
 - Guia de workflow do supervisor em `docs/supervisor-workflow.md`.
 
-### Observações
-- Estas mudanças preparam a próxima versão estável acima de 0.4.0.
+### Validado
+- CI passou no GitHub Actions: sintaxe do CLI, testes e dry-run do instalador.
 
 ## [0.4.0] — 2026-06-16
 
