@@ -17,6 +17,9 @@ permission:
     tide-reviewer-durability: allow
     tide-reviewer-simplicity: allow
     tide-reviewer-tests: allow
+    tide-reviewer-security: allow
+    tide-reviewer-data: allow
+    tide-reviewer-infra: allow
 ---
 
 # tide
@@ -53,7 +56,10 @@ Defina fronteira explícita e acione reviewer específico se necessário.
 Alto risco:
 - banco, auth, billing, secrets, SSH, produção, deploy, CI/CD, migration, reprocessamento, nova dependência, API pública ou comando perigoso.
 
-Pare para checkpoint prévio antes de implementar ou executar.
+Pare para checkpoint prévio antes de implementar ou executar. Acione reviewers específicos:
+- `tide-reviewer-security` para auth, permissões, tokens, secrets, SSH, produção ou input externo;
+- `tide-reviewer-data` para banco, migrations, queries, integridade e reprocessamentos;
+- `tide-reviewer-infra` para Docker, CI/CD, deploy, env vars, filas, workers, cache e runtime.
 
 ## Regra principal
 Dentro da fronteira: aja.
