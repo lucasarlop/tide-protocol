@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.0] — 2026-06-16
+
+### Adicionado
+- Exemplo de catálogo de comandos em `examples/tide.commands.json`.
+- Comandos OpenCode `/project-commands` e `/project-run` para descoberta e execução supervisionada de comandos de projeto.
+- Estrutura inicial para comandos catalogados com `safety`, `requires_ok`, argumentos, timeout e validações esperadas.
+
+### Observações
+- A execução runtime completa do catálogo dentro do CLI `tide` ainda será endurecida na próxima Wave antes de ser considerada estável.
+
 ## [0.2.0] — 2026-06-16
 
 ### Adicionado
