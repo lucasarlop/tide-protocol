@@ -1,0 +1,85 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "~/.config/opencode/rules/principles.md",
+    "~/.config/opencode/rules/wave-policy.md",
+    "~/.config/opencode/rules/risk-router.md",
+    "~/.config/opencode/rules/runtime-policy.md"
+  ],
+  "agent": {
+    "tide": {
+      "description": "Agente principal do Tide Protocol. Decide Waves, fronteiras, risco e subagentes.",
+      "mode": "primary",
+      "prompt": "{file:~/.config/opencode/agents/tide.md}",
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "task": {
+          "tide-guide": "allow",
+          "tide-runner": "allow",
+          "tide-operator": "allow",
+          "tide-verifier": "allow",
+          "tide-steward": "allow",
+          "tide-reviewer-durability": "allow",
+          "tide-reviewer-simplicity": "allow",
+          "tide-reviewer-tests": "allow"
+        }
+      }
+    },
+    "tide-guide": {
+      "description": "Responde dúvidas sobre o projeto atual. Read-only.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/tide-guide.md}",
+      "permission": { "edit": "deny", "bash": "deny" }
+    },
+    "tide-runner": {
+      "description": "Implementa mudanças dentro da fronteira da Wave.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/tide-runner.md}",
+      "permission": { "edit": "allow", "write": "allow", "bash": "ask" }
+    },
+    "tide-operator": {
+      "description": "Descobre e executa comandos específicos do projeto com política de runtime.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/tide-operator.md}",
+      "permission": { "edit": "deny", "bash": "ask" }
+    },
+    "tide-verifier": {
+      "description": "Roda validações, testes e comandos com timeout. Não edita código.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/tide-verifier.md}",
+      "permission": { "edit": "deny", "bash": "ask" }
+    },
+    "tide-steward": {
+      "description": "Gerencia Waves, approve, reject e commits supervisionados.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/tide-steward.md}",
+      "permission": { "edit": "allow", "write": "allow", "bash": "ask" }
+    },
+    "tide-reviewer-durability": {
+      "description": "Revisa código durável: falha bem, orienta bem e fica intuitivo no futuro.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/reviewers/tide-reviewer-durability.md}",
+      "permission": { "edit": "deny", "bash": "deny" }
+    },
+    "tide-reviewer-simplicity": {
+      "description": "Revisa simplicidade, escopo e overengineering.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/reviewers/tide-reviewer-simplicity.md}",
+      "permission": { "edit": "deny", "bash": "deny" }
+    },
+    "tide-reviewer-tests": {
+      "description": "Revisa se testes e validações provam o risco certo.",
+      "mode": "subagent",
+      "prompt": "{file:~/.config/opencode/agents/reviewers/tide-reviewer-tests.md}",
+      "permission": { "edit": "deny", "bash": "deny" }
+    }
+  },
+  "mcp": {
+    "tide": {
+      "type": "local",
+      "command": ["tide", "mcp"],
+      "enabled": false
+    }
+  }
+}
