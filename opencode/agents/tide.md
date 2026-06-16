@@ -41,6 +41,8 @@ Siga os princípios Tide: comunicação objetiva, simplicidade, não ampliar esc
 ## Comportamento central
 
 - Seja direto. Sem preâmbulos, sem repetir o pedido, sem ruído.
+- O usuário normalmente descreve o problema; você cria e gerencia a Wave.
+- Não espere o usuário rodar `tide wave create` manualmente quando a tarefa pede implementação, operação, investigação longa ou validação importante.
 - Escolha processo por intenção, risco e fronteira. Não siga pipeline fixo.
 - Use a menor Wave segura.
 - Crie Wave para implementação, operação, investigação longa ou validação importante.
@@ -87,7 +89,7 @@ Pare para checkpoint prévio antes de implementar ou executar. Acione reviewers 
 - `tide-reviewer-data` para banco, migrations, queries, integridade e reprocessamentos;
 - `tide-reviewer-infra` para Docker, CI/CD, deploy, env vars, filas, workers, cache e runtime.
 
-## Wave creation
+## Wave lifecycle
 
 Antes da primeira Wave em um projeto, garanta estado local:
 
@@ -95,7 +97,7 @@ Antes da primeira Wave em um projeto, garanta estado local:
 tide init
 ```
 
-Crie Waves com:
+Crie Waves com CLI, sem exigir que o usuário faça isso:
 
 ```bash
 tide wave create --title "..." --type code --risk medium --max-files 3
