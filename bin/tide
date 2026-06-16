@@ -63,6 +63,23 @@ get_field() {
   local id="$1" field="$2" file="$WAVES_DIR/$id/wave.md"
   awk -F': ' -v key="$field" '$1 == key {print substr($0, length(key)+3); exit}' "$file"
 }
+write_files_json() {
+  local out="$1" tmp
+  tmp="$(mktemp)"
+  { git diff --name-only; git ls-files --others --exclude-standard; } | awk 'NF' | sort -u > "$tmp"
+  python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in open(sys.argv[1]) if l.strip()], indent=2, ensure_ascii=False))' "$tmp" > "$out"
+  rm -f "$tmp"
+}
+write_wave_diff() {
+  local out="$1" tmp
+  tmp="$(mktemp)"
+  git diff --binary > "$tmp"
+  git ls-files --others --exclude-standard | while IFS= read -r path; do
+    [ -n "$path" ] || continue
+    git diff --no-index --binary -- /dev/null "$path" >> "$tmp" || true
+  done
+  mv "$tmp" "$out"
+}
 cmd_init() {
   need_git
   ensure_waves_dir
@@ -121,8 +138,8 @@ cmd_snapshot() {
   need_git; need_python
   local id="$1" dir="$WAVES_DIR/$id"
   [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  git diff > "$dir/wave.diff"
-  git diff --name-only | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()], indent=2, ensure_ascii=False))' > "$dir/files.json"
+  write_wave_diff "$dir/wave.diff"
+  write_files_json "$dir/files.json"
   set_status "$id" "parked"
   echo "ok: snapshot salvo para $id"
 }
