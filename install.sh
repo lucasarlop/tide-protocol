@@ -37,22 +37,9 @@ done
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
 say() { printf '%s\n' "$*"; }
-write_file() {
-  local src="$1" dst="$2"
-  if [ -e "$dst" ] && [ "$FORCE" != "1" ]; then
-    say "  skip: $dst já existe (use --force para sobrescrever)"
-    return
-  fi
-  if [ "$DRY_RUN" = "1" ]; then
-    say "  would copy: $dst"
-    return
-  fi
-  mkdir -p "$(dirname "$dst")"
-  cp "$src" "$dst"
-  say "  ok: $dst"
-}
 copy_tree() {
   local src="$1" dst="$2"
+  [ -d "$src" ] || return 0
   if [ "$DRY_RUN" = "1" ]; then
     say "  would sync: $dst"
     return
@@ -84,6 +71,7 @@ copy_tree "$ROOT/opencode/agents" "$CONFIG_DIR/agents"
 copy_tree "$ROOT/opencode/commands" "$CONFIG_DIR/commands"
 copy_tree "$ROOT/opencode/skills" "$CONFIG_DIR/skills"
 copy_tree "$ROOT/opencode/rules" "$CONFIG_DIR/rules/tide"
+copy_tree "$ROOT/mcp" "$CONFIG_DIR/tide-mcp"
 
 say ""
 say "Instalando CLI tide:"
@@ -99,7 +87,10 @@ fi
 say ""
 say "Pronto."
 say "Abra qualquer projeto com:"
-say "  cd <projeto> && opencode"
+say "  cd <projeto> && tide init && opencode"
+say ""
+say "MCP seguro instalado em:"
+say "  $CONFIG_DIR/tide-mcp/tide_mcp.py"
 say ""
 say "Se o comando tide não for encontrado, adicione ao PATH:"
 say "  export PATH=\"$BIN_DIR:\$PATH\""
