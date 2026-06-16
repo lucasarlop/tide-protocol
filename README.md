@@ -6,9 +6,9 @@ O software é o mar. As Waves são movimentos controlados sobre ele: podem inves
 
 ## Status
 
-Versão atual: **0.2.0**.
+Versão atual: **0.4.0**.
 
-Esta versão entrega o runtime local de Waves com snapshots por árvore Git, approve/reject seguro e instalação global para OpenCode. MCP Tide e integração profunda com `code-review-graph` ficam para próximas Waves.
+Esta versão consolida o CLI `tide` em Python, com runtime local de Waves, approve/reject, catálogo de comandos de projeto, execução supervisionada e timeout conservador para comandos longos. MCP Tide e integração profunda com `code-review-graph` seguem planejados para próximas Waves.
 
 ## Ideia central
 
@@ -54,18 +54,13 @@ Depois:
 
 ```bash
 cd qualquer-projeto
+tide init
 opencode
 ```
 
 ## Estado local de Waves
 
-Em cada projeto:
-
-```bash
-tide init
-```
-
-Isso cria estado operacional local em:
+`tide init` cria estado operacional local em:
 
 ```txt
 .opencode/waves/
@@ -99,131 +94,126 @@ parked/validated ≠ committed
 
 Você pode seguir em várias Waves antes de decidir o que aprovar ou rejeitar.
 
-## Comandos slash
-
-```txt
-/waves
-```
-
-Lista Waves abertas, estacionadas, rejeitadas e commitadas.
-
-```txt
-/wave TIDE-0001
-```
-
-Mostra detalhes de uma Wave.
-
-```txt
-/approve TIDE-0001
-```
-
-Commita a Wave com mensagem incluindo o ID.
-
-```txt
-/approve TIDE-0001 TIDE-0002
-```
-
-Commita múltiplas Waves juntas, na ordem informada.
-
-```txt
-/reject TIDE-0001
-```
-
-Reverte a Wave, se o patch reverso aplicar limpo.
-
-```txt
-/btw <pergunta>
-/teach <tema>
-```
-
-Bypasses: não alteram Waves nem código.
-
 ## CLI
 
-```bash
-tide init
-```
-
-Inicializa `.opencode/waves/` no projeto atual.
+Criar uma Wave:
 
 ```bash
 tide wave create --title "Corrigir validação de DATABASE_URL" --type code --risk medium --max-files 3
 ```
 
-Cria a próxima Wave e captura uma baseline da árvore atual do worktree.
+Estacionar a Wave com snapshot do diff atual:
 
 ```bash
-tide wave snapshot TIDE-0001 --status parked --note "Implementação pronta para validação manual"
+tide wave park TIDE-0001 --note "Implementação pronta para validação manual"
 ```
 
-Captura o diff da Wave desde a baseline até o worktree atual.
+Registrar evidência:
 
 ```bash
-tide wave park TIDE-0001 --validation "pytest tests/config -x --tb=short"
+tide wave validate TIDE-0001 --summary "pytest tests/config -x passou" --command "pytest tests/config -x" --result "passed" --status validated
 ```
 
-Atalho para snapshot estacionado.
+Inspecionar:
 
 ```bash
 tide wave list
-```
-
-Lista Waves.
-
-```bash
 tide wave show TIDE-0001
-```
-
-Mostra `wave.md`.
-
-```bash
 tide wave status TIDE-0001
+tide wave diff TIDE-0001 --stat
+tide wave files TIDE-0001
 ```
 
-Mostra status curto.
+Aprovar ou rejeitar:
 
 ```bash
-tide wave approve TIDE-0001
+tide approve TIDE-0001
+tide approve TIDE-0001 TIDE-0002
+tide reject TIDE-0001
 ```
-
-Cria commit a partir do patch salvo da Wave.
-
-```bash
-tide wave approve TIDE-0001 TIDE-0002
-```
-
-Cria commit agrupando as Waves informadas.
-
-```bash
-tide wave reject TIDE-0001
-```
-
-Aplica o reverse patch da Wave.
 
 Aliases compatíveis:
 
 ```bash
 tide waves
-tide wave TIDE-0001
-tide approve TIDE-0001
-tide reject TIDE-0001
+tide create-wave "Título curto"
 tide snapshot TIDE-0001
 tide park TIDE-0001
+tide wave approve TIDE-0001
+tide wave reject TIDE-0001
 ```
+
+## Catálogo de comandos do projeto
+
+O Tide descobre comandos de:
+
+- `package.json`;
+- `Makefile`;
+- scripts em `bin/`, `scripts/` e `tools/`;
+- catálogos opcionais em `.tide/commands.json`, `.tide.commands.json` ou `tide.commands.json`.
+
+Listar comandos:
+
+```bash
+tide project commands
+tide project commands --json
+```
+
+Explicar um comando:
+
+```bash
+tide project command regenerate_book
+```
+
+Executar comando catalogado:
+
+```bash
+tide project run regenerate_book --arg book_id=123 --dry-run
+tide project run regenerate_book --arg book_id=123 --yes
+```
+
+Comandos com `safety` sensível ou `requires_ok: true` exigem `--yes`, que representa OK explícito do supervisor. Timeout retorna resultado inconclusivo, não sucesso.
+
+Também há execução direta com timeout:
+
+```bash
+tide run --timeout-sec 120 --silence-sec 60 -- pytest tests/config -x
+```
+
+Códigos especiais:
+
+```txt
+124 = timeout hard
+125 = timeout por silêncio
+```
+
+## Comandos slash
+
+```txt
+/waves
+/wave TIDE-0001
+/approve TIDE-0001
+/approve TIDE-0001 TIDE-0002
+/reject TIDE-0001
+/park TIDE-0001
+/project-commands
+/project-run <comando catalogado>
+/btw <pergunta>
+/teach <tema>
+```
+
+`/approve` e `/reject` só acontecem quando o supervisor pede explicitamente. Commit nunca é automático.
 
 ## Isolamento de Waves
 
-Cada Wave captura uma baseline da árvore do worktree no momento da criação. O snapshot compara essa baseline com o worktree atual.
+Cada Wave salva arquivos, patch e metadados locais. O Tide prefere parar a destruir mudança silenciosamente.
 
-Isso permite:
+Regras atuais:
 
-- estacionar Waves sem commit;
-- criar novas Waves sobre mudanças ainda não commitadas;
-- aprovar uma Wave isolada quando o patch aplicar limpo;
-- aprovar múltiplas Waves juntas;
-- rejeitar uma Wave quando o reverse patch aplicar limpo.
-
-Se uma Wave depender de outra no mesmo hunk/contexto, o approve/reject isolado deve falhar e pedir ação agrupada ou manual. O Tide prefere parar a destruir mudança silenciosamente.
+- approve de uma Wave faz commit dos arquivos registrados no snapshot;
+- approve de múltiplas Waves agrupa os arquivos registrados;
+- se houver outra Wave ativa tocando o mesmo arquivo, o approve isolado bloqueia, salvo `--allow-overlap`;
+- reject usa reverse patch e falha se não aplicar limpo.
 
 ## Agentes
 
