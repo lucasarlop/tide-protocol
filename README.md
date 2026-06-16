@@ -6,9 +6,9 @@ O software é o mar. As Waves são movimentos controlados sobre ele: podem inves
 
 ## Status
 
-Versão atual: **0.4.0**.
+Versão atual: **0.5.0**.
 
-Esta versão consolida o CLI `tide` em Python, com runtime local de Waves, approve/reject, catálogo de comandos de projeto, execução supervisionada e timeout conservador para comandos longos. MCP Tide e integração profunda com `code-review-graph` seguem planejados para próximas Waves.
+Esta versão entrega o MVP operacional do Tide: CLI Python com Waves locais, approve/reject supervisionado, catálogo de comandos de projeto, runtime com timeout, agentes/comandos/skills globais para OpenCode, CI, guias de instalação/operação, Código Vivo e MCP seguro de contexto.
 
 ## Ideia central
 
@@ -186,6 +186,39 @@ Códigos especiais:
 124 = timeout hard
 125 = timeout por silêncio
 ```
+
+## Tide MCP
+
+O Tide MCP começa como camada segura de contexto e planejamento. Ele não substitui os agentes do OpenCode e não transforma o MCP em executor cego de comandos.
+
+Arquivo atual:
+
+```txt
+mcp/tide_mcp.py
+```
+
+Contrato inicial:
+
+```txt
+tide_project_profile
+tide_wave_list
+tide_wave_show
+tide_commands_list
+tide_command_plan
+tide_context_status
+```
+
+A execução operacional permanece no CLI `tide`, nos comandos slash e nos agentes, respeitando supervisor OK, `safety`, `requires_ok`, timeout e validação.
+
+## Código Vivo
+
+`code-review-graph` é integração recomendada, não dependência obrigatória. O Tide usa contexto indexado quando disponível, mas a fonte da verdade continua sendo:
+
+```txt
+código atual + git status + diff + validações reais
+```
+
+Se não houver índice, o agente deve usar leitura direta do código atual.
 
 ## Comandos slash
 
