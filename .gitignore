@@ -1,0 +1,7 @@
+.opencode/waves/
+.opencode/.tide-state/
+.env
+.DS_Store
+node_modules/
+__pycache__/
+.pytest_cache/
