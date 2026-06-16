@@ -1,218 +1,877 @@
-#!/usr/bin/env bash
-# tide — CLI local do Tide Protocol.
-set -euo pipefail
+#!/usr/bin/env python3
+"""tide — CLI local do Tide Protocol."""
+from __future__ import annotations
 
-VERSION="0.1.0"
-WAVES_DIR=".opencode/waves"
+import argparse
+import json
+import os
+import re
+import shlex
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Iterable
 
-usage() {
-  cat <<EOF
-Tide Protocol CLI $VERSION
+VERSION = "0.4.0"
+WAVES_DIR = Path(".opencode/waves")
+VALID_STATUSES = {"running", "parked", "validated", "committed", "rejected", "failed"}
+SENSITIVE_SAFETY = {"mutating", "dangerous", "production", "ssh", "database", "db", "destructive"}
 
-Uso:
-  tide init
-  tide create-wave <titulo>
-  tide snapshot <TIDE-0001>
-  tide waves
-  tide wave <TIDE-0001>
-  tide approve <TIDE-0001>
-  tide reject <TIDE-0001>
 
-Notas:
-  - Waves ficam em .opencode/waves/ e devem ser ignoradas pelo Git.
-  - approve cria commit apenas para os arquivos registrados em files.json.
-  - reject aplica o reverse patch salvo em wave.diff.
-EOF
-}
+class TideError(RuntimeError):
+    pass
 
-need_git() {
-  git rev-parse --show-toplevel >/dev/null 2>&1 || {
-    echo "erro: rode dentro de um repositório git" >&2
-    exit 1
-  }
-}
-need_python() {
-  command -v python3 >/dev/null 2>&1 || {
-    echo "erro: python3 é necessário para esta operação" >&2
-    exit 1
-  }
-}
-ensure_waves_dir() {
-  mkdir -p "$WAVES_DIR"
-  touch "$WAVES_DIR/.gitkeep"
-  if [ -f .gitignore ]; then
-    grep -qxF "$WAVES_DIR/" .gitignore || printf '%s\n' "$WAVES_DIR/" >> .gitignore
-  else
-    printf '%s\n' "$WAVES_DIR/" > .gitignore
-  fi
-}
-next_id() {
-  local last n
-  last="$(find "$WAVES_DIR" -maxdepth 1 -type d -name 'TIDE-[0-9][0-9][0-9][0-9]' 2>/dev/null | sed 's#^.*/TIDE-##' | sort -n | tail -1 || true)"
-  n=$((10#${last:-0} + 1))
-  printf 'TIDE-%04d\n' "$n"
-}
-set_status() {
-  local id="$1" status="$2" file="$WAVES_DIR/$id/wave.md" tmp
-  [ -f "$file" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  tmp="$(mktemp)"
-  awk -v s="$status" 'BEGIN{done=0} /^status:/ && done==0 {print "status: " s; done=1; next} {print}' "$file" > "$tmp"
-  mv "$tmp" "$file"
-}
-get_field() {
-  local id="$1" field="$2" file="$WAVES_DIR/$id/wave.md"
-  awk -F': ' -v key="$field" '$1 == key {print substr($0, length(key)+3); exit}' "$file"
-}
-write_files_json() {
-  local out="$1" tmp
-  tmp="$(mktemp)"
-  { git diff --name-only; git ls-files --others --exclude-standard; } | awk 'NF' | sort -u > "$tmp"
-  python3 -c 'import json,sys; print(json.dumps([l.rstrip("\n") for l in open(sys.argv[1]) if l.strip()], indent=2, ensure_ascii=False))' "$tmp" > "$out"
-  rm -f "$tmp"
-}
-write_wave_diff() {
-  local out="$1" tmp
-  tmp="$(mktemp)"
-  git diff --binary > "$tmp"
-  git ls-files --others --exclude-standard | while IFS= read -r path; do
-    [ -n "$path" ] || continue
-    git diff --no-index --binary -- /dev/null "$path" >> "$tmp" || true
-  done
-  mv "$tmp" "$out"
-}
-cmd_init() {
-  need_git
-  ensure_waves_dir
-  echo "ok: $WAVES_DIR/ preparado e ignorado no Git"
-}
-cmd_create_wave() {
-  need_git
-  local title="${*:-}"
-  [ -n "$title" ] || { echo "erro: informe um título" >&2; exit 1; }
-  ensure_waves_dir
-  local id dir base
-  id="$(next_id)"
-  dir="$WAVES_DIR/$id"
-  base="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
-  mkdir -p "$dir"
-  cat > "$dir/wave.md" <<EOF
----
-id: $id
-title: $title
-status: running
-type: code
-risk: unknown
-created_at: $(date -Iseconds)
-base_ref: $base
-depends_on: []
+
+def die(message: str, code: int = 1) -> None:
+    print(f"erro: {message}", file=sys.stderr)
+    raise SystemExit(code)
+
+
+def run_git(args: list[str], *, check: bool = True, capture: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(["git", *args], text=True, capture_output=capture, env=env)
+    if check and result.returncode != 0:
+        msg = result.stderr.strip() or result.stdout.strip() or "git falhou"
+        raise TideError(msg)
+    return result
+
+
+def repo_root() -> Path:
+    try:
+        out = run_git(["rev-parse", "--show-toplevel"]).stdout.strip()
+    except TideError:
+        die("rode dentro de um repositório git")
+    return Path(out)
+
+
+def git_head(short: bool = False) -> str:
+    args = ["rev-parse"]
+    if short:
+        args.append("--short")
+    args.append("HEAD")
+    result = run_git(args, check=False)
+    if result.returncode != 0:
+        return "unknown"
+    return result.stdout.strip()
+
+
+def now_iso() -> str:
+    return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def ensure_waves_dir() -> None:
+    root = repo_root()
+    waves = root / WAVES_DIR
+    waves.mkdir(parents=True, exist_ok=True)
+
+    info_exclude = root / ".git/info/exclude"
+    info_exclude.parent.mkdir(parents=True, exist_ok=True)
+    existing = info_exclude.read_text(encoding="utf-8") if info_exclude.exists() else ""
+    line = ".opencode/waves/"
+    if line not in existing.splitlines():
+        with info_exclude.open("a", encoding="utf-8") as f:
+            if existing and not existing.endswith("\n"):
+                f.write("\n")
+            f.write(f"{line}\n")
+
+    registry = waves / "registry.json"
+    if not registry.exists():
+        write_json(registry, {"version": 1, "waves": []})
+
+
+def wave_dir(wave_id: str) -> Path:
+    return repo_root() / WAVES_DIR / wave_id
+
+
+def wave_json_path(wave_id: str) -> Path:
+    return wave_dir(wave_id) / "wave.json"
+
+
+def wave_md_path(wave_id: str) -> Path:
+    return wave_dir(wave_id) / "wave.md"
+
+
+def registry_path() -> Path:
+    return repo_root() / WAVES_DIR / "registry.json"
+
+
+def write_json(path: Path, data: Any) -> None:
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def read_json(path: Path, default: Any | None = None) -> Any:
+    if not path.exists():
+        if default is not None:
+            return default
+        raise TideError(f"arquivo não encontrado: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def require_wave_id(wave_id: str) -> str:
+    if not re.fullmatch(r"TIDE-\d{4}", wave_id):
+        die(f"ID de Wave inválido: {wave_id}; use formato TIDE-0001")
+    if not wave_dir(wave_id).exists():
+        die(f"Wave não encontrada: {wave_id}")
+    return wave_id
+
+
+def read_wave(wave_id: str) -> dict[str, Any]:
+    require_wave_id(wave_id)
+    return read_json(wave_json_path(wave_id), default=None)
+
+
+def update_registry(wave: dict[str, Any]) -> None:
+    ensure_waves_dir()
+    path = registry_path()
+    registry = read_json(path, {"version": 1, "waves": []})
+    waves = registry.setdefault("waves", [])
+    compact = {
+        "id": wave["id"],
+        "title": wave.get("title", ""),
+        "status": wave.get("status", "running"),
+        "type": wave.get("type", "code"),
+        "risk": wave.get("risk", "unknown"),
+        "created_at": wave.get("created_at"),
+        "updated_at": wave.get("updated_at"),
+    }
+    for i, item in enumerate(waves):
+        if item.get("id") == wave["id"]:
+            waves[i] = compact
+            break
+    else:
+        waves.append(compact)
+    waves.sort(key=lambda item: item["id"])
+    write_json(path, registry)
+
+
+def write_wave_files(wave: dict[str, Any]) -> None:
+    directory = wave_dir(wave["id"])
+    directory.mkdir(parents=True, exist_ok=True)
+    wave["updated_at"] = now_iso()
+    write_json(directory / "wave.json", wave)
+    (directory / "wave.md").write_text(render_wave_md(wave), encoding="utf-8")
+    for filename, default in [("files.json", []), ("validations.json", []), ("wave.diff", "")]:
+        path = directory / filename
+        if not path.exists():
+            if isinstance(default, str):
+                path.write_text(default, encoding="utf-8")
+            else:
+                write_json(path, default)
+    update_registry(wave)
+
+
+def render_wave_md(wave: dict[str, Any]) -> str:
+    files = "\n".join(f"- `{p}`" for p in wave.get("files", [])) or "- Pendente."
+    validations = wave.get("validations", [])
+    evidence = "\n".join(f"- {v.get('summary', v)}" for v in validations) if validations else "- Pendente."
+    return f"""---
+id: {wave['id']}
+title: {wave.get('title', '')}
+status: {wave.get('status', 'running')}
+type: {wave.get('type', 'code')}
+risk: {wave.get('risk', 'unknown')}
+created_at: {wave.get('created_at', '')}
+updated_at: {wave.get('updated_at', '')}
+base_ref: {wave.get('base_ref', 'unknown')}
+baseline: {wave.get('baseline', 'clean')}
+depends_on: {json.dumps(wave.get('depends_on', []), ensure_ascii=False)}
 ---
 
 ## Intenção
-$title
+
+{wave.get('intent', wave.get('title', ''))}
 
 ## Fronteira
-- Pode tocar: a definir pelo agente.
-- Não pode tocar: qualquer coisa fora da Wave sem checkpoint.
+
+Pode tocar:
+{format_md_list(wave.get('allowed', []), '- a definir pelo agente')}
+
+Não pode tocar:
+{format_md_list(wave.get('forbidden', []), '- qualquer coisa fora da Wave sem checkpoint')}
+
+Máximo de arquivos: {wave.get('max_files', 'não definido')}
 
 ## Durabilidade
-A mudança deve falhar bem, orientar bem e deixar claro onde ajustar no futuro.
+
+{wave.get('durability', 'A mudança deve falhar bem, orientar bem e deixar claro onde ajustar no futuro.')}
 
 ## Validação planejada
-A definir antes de considerar a Wave pronta.
+
+{wave.get('validation_plan', 'A definir antes de considerar a Wave pronta.')}
+
+## Arquivos registrados
+
+{files}
 
 ## Evidência
-Pendente.
+
+{evidence}
 
 ## Resultado
-Pendente.
+
+{wave.get('result', 'Pendente.')}
 
 ## Supervisor
-Aguardando approve, reject, continuação ou acúmulo.
-EOF
-  printf '[]\n' > "$dir/files.json"
-  : > "$dir/wave.diff"
-  printf '{}\n' > "$dir/validations.json"
-  echo "$id"
-}
-cmd_snapshot() {
-  need_git; need_python
-  local id="$1" dir="$WAVES_DIR/$id"
-  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  write_wave_diff "$dir/wave.diff"
-  write_files_json "$dir/files.json"
-  set_status "$id" "parked"
-  echo "ok: snapshot salvo para $id"
-}
-cmd_waves() {
-  need_git
-  if [ ! -d "$WAVES_DIR" ]; then
-    echo "nenhuma Wave encontrada; rode: tide init"
-    return
-  fi
-  local found=0
-  for dir in "$WAVES_DIR"/TIDE-[0-9][0-9][0-9][0-9]; do
-    [ -d "$dir" ] || continue
-    found=1
-    local id status title
-    id="$(basename "$dir")"
-    status="$(get_field "$id" status || true)"
-    title="$(get_field "$id" title || true)"
-    printf '%s  %-10s  %s\n' "$id" "${status:-unknown}" "${title:-sem título}"
-  done
-  [ "$found" = "1" ] || echo "nenhuma Wave encontrada"
-}
-cmd_wave() {
-  local id="$1" file="$WAVES_DIR/$id/wave.md"
-  [ -f "$file" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  cat "$file"
-}
-cmd_approve() {
-  need_git; need_python
-  local id="$1" dir="$WAVES_DIR/$id" files="$dir/files.json"
-  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  [ -f "$files" ] || { echo "erro: $files não existe; rode tide snapshot $id" >&2; exit 1; }
-  local status title count
-  status="$(get_field "$id" status || true)"
-  case "$status" in
-    rejected|committed) echo "erro: $id já está $status" >&2; exit 1 ;;
-  esac
-  count="$(python3 -c 'import json,sys; print(len(json.load(open(sys.argv[1]))))' "$files")"
-  [ "$count" != "0" ] || { echo "erro: $id não tem arquivos registrados" >&2; exit 1; }
-  python3 -c 'import json,sys; [print(p) for p in json.load(open(sys.argv[1]))]' "$files" | while IFS= read -r path; do
-    [ -n "$path" ] && git add -- "$path"
-  done
-  title="$(get_field "$id" title || echo "Wave")"
-  git commit -m "chore(tide): $title [$id]" -m "Wave: $id" >/dev/null
-  set_status "$id" "committed"
-  echo "ok: $id commitada"
-  git log -1 --oneline
-}
-cmd_reject() {
-  need_git
-  local id="$1" dir="$WAVES_DIR/$id" patch="$dir/wave.diff"
-  [ -d "$dir" ] || { echo "erro: Wave não encontrada: $id" >&2; exit 1; }
-  [ -s "$patch" ] || { echo "erro: $id não tem patch salvo para reverter" >&2; exit 1; }
-  git apply -R --check "$patch" || {
-    echo "erro: não foi possível reverter $id de forma limpa" >&2
-    echo "nada foi alterado; resolva conflitos ou rejeite Waves dependentes primeiro" >&2
-    exit 1
-  }
-  git apply -R "$patch"
-  set_status "$id" "rejected"
-  echo "ok: $id rejeitada"
-}
 
-cmd="${1:-}"
-shift || true
-case "$cmd" in
-  init) cmd_init "$@" ;;
-  create-wave) cmd_create_wave "$@" ;;
-  snapshot) [ $# -eq 1 ] || { usage; exit 1; }; cmd_snapshot "$1" ;;
-  waves) cmd_waves "$@" ;;
-  wave) [ $# -eq 1 ] || { usage; exit 1; }; cmd_wave "$1" ;;
-  approve) [ $# -eq 1 ] || { usage; exit 1; }; cmd_approve "$1" ;;
-  reject) [ $# -eq 1 ] || { usage; exit 1; }; cmd_reject "$1" ;;
-  -h|--help|help|"") usage ;;
-  --version|version) echo "$VERSION" ;;
-  *) echo "erro: comando desconhecido: $cmd" >&2; usage; exit 1 ;;
-esac
+{wave.get('supervisor', 'Aguardando approve, reject, continuação ou acúmulo.')}
+"""
+
+
+def format_md_list(values: list[str], fallback: str) -> str:
+    if not values:
+        return fallback
+    return "\n".join(f"- `{v}`" if "/" in v or "*" in v else f"- {v}" for v in values)
+
+
+def next_wave_id() -> str:
+    ensure_waves_dir()
+    ids: list[int] = []
+    for path in (repo_root() / WAVES_DIR).glob("TIDE-[0-9][0-9][0-9][0-9]"):
+        if path.is_dir():
+            ids.append(int(path.name.split("-")[1]))
+    return f"TIDE-{(max(ids) if ids else 0) + 1:04d}"
+
+
+def worktree_has_changes() -> bool:
+    return bool(run_git(["status", "--porcelain"]).stdout.strip())
+
+
+def tracked_and_untracked_files() -> list[str]:
+    tracked = run_git(["diff", "--name-only", "HEAD"]).stdout.splitlines()
+    untracked = run_git(["ls-files", "--others", "--exclude-standard"]).stdout.splitlines()
+    return sorted(set(p for p in tracked + untracked if p.strip()))
+
+
+def build_patch() -> str:
+    patch = run_git(["diff", "--binary", "HEAD"]).stdout
+    for path in run_git(["ls-files", "--others", "--exclude-standard"]).stdout.splitlines():
+        if not path:
+            continue
+        result = subprocess.run(["git", "diff", "--no-index", "--binary", "--", "/dev/null", path], text=True, capture_output=True)
+        if result.stdout:
+            patch += result.stdout
+    return patch
+
+
+def set_wave_status(wave_id: str, status: str, note: str | None = None) -> None:
+    if status not in VALID_STATUSES:
+        die(f"status inválido: {status}. Válidos: {', '.join(sorted(VALID_STATUSES))}")
+    wave = read_wave(wave_id)
+    wave["status"] = status
+    if note:
+        wave["result"] = note
+    write_wave_files(wave)
+
+
+def snapshot_wave(wave_id: str, *, status: str = "parked", note: str | None = None) -> None:
+    wave = read_wave(wave_id)
+    files = tracked_and_untracked_files()
+    patch = build_patch()
+    directory = wave_dir(wave_id)
+    (directory / "wave.diff").write_text(patch, encoding="utf-8")
+    write_json(directory / "files.json", files)
+    wave["files"] = files
+    wave["status"] = status
+    if note:
+        wave["result"] = note
+    write_wave_files(wave)
+
+
+def active_waves() -> list[dict[str, Any]]:
+    ensure_waves_dir()
+    waves = []
+    for path in sorted((repo_root() / WAVES_DIR).glob("TIDE-[0-9][0-9][0-9][0-9]/wave.json")):
+        try:
+            wave = read_json(path)
+        except Exception:
+            continue
+        if wave.get("status") not in {"committed", "rejected"}:
+            waves.append(wave)
+    return waves
+
+
+def wave_files(wave_id: str) -> list[str]:
+    files_path = wave_dir(wave_id) / "files.json"
+    if files_path.exists():
+        return read_json(files_path, [])
+    return read_wave(wave_id).get("files", [])
+
+
+def check_overlap(selected_ids: list[str]) -> None:
+    selected = set(selected_ids)
+    selected_files: set[str] = set()
+    for wave_id in selected_ids:
+        selected_files.update(wave_files(wave_id))
+
+    conflicts = []
+    for wave in active_waves():
+        wid = wave.get("id")
+        if wid in selected:
+            continue
+        overlap = selected_files.intersection(set(wave_files(wid)))
+        if overlap:
+            conflicts.append((wid, sorted(overlap)))
+
+    if conflicts:
+        lines = ["não é seguro aprovar isoladamente: há Waves ativas tocando os mesmos arquivos."]
+        for wid, files in conflicts:
+            lines.append(f"- {wid}: {', '.join(files)}")
+        lines.append("Aprove as Waves juntas, rejeite as dependentes primeiro, ou resolva manualmente.")
+        die("\n".join(lines))
+
+
+def commit_waves(wave_ids: list[str], message: str | None = None, *, allow_overlap: bool = False) -> None:
+    for wid in wave_ids:
+        require_wave_id(wid)
+        status = read_wave(wid).get("status")
+        if status in {"committed", "rejected"}:
+            die(f"{wid} já está {status}")
+    if not allow_overlap:
+        check_overlap(wave_ids)
+
+    paths: list[str] = []
+    titles: list[str] = []
+    for wid in wave_ids:
+        files = wave_files(wid)
+        if not files:
+            die(f"{wid} não tem arquivos registrados; rode `tide wave park {wid}` antes")
+        paths.extend(files)
+        titles.append(read_wave(wid).get("title", wid))
+
+    for path in sorted(set(paths)):
+        run_git(["add", "--", path], capture=True)
+
+    if run_git(["diff", "--cached", "--quiet"], check=False).returncode == 0:
+        die("nada staged para commit; a Wave pode já estar aplicada ou sem mudanças")
+
+    ids = ", ".join(wave_ids)
+    if not message:
+        if len(wave_ids) == 1:
+            message = f"chore(tide): {titles[0]} [{wave_ids[0]}]"
+        else:
+            message = f"chore(tide): consolidate Waves [{ids}]"
+
+    body = "\n".join([f"Wave: {wid}" for wid in wave_ids])
+    run_git(["commit", "-m", message, "-m", body], capture=True)
+    for wid in wave_ids:
+        set_wave_status(wid, "committed", "Commitado pelo supervisor.")
+    print(f"ok: commit criado para {ids}")
+    print(run_git(["log", "-1", "--oneline"]).stdout.strip())
+
+
+def reject_waves(wave_ids: list[str]) -> None:
+    for wid in wave_ids:
+        require_wave_id(wid)
+        status = read_wave(wid).get("status")
+        if status in {"committed", "rejected"}:
+            die(f"{wid} já está {status}")
+
+    for wid in reversed(wave_ids):
+        patch_path = wave_dir(wid) / "wave.diff"
+        if not patch_path.exists() or patch_path.stat().st_size == 0:
+            die(f"{wid} não tem patch salvo para reverter")
+        check = subprocess.run(["git", "apply", "-R", "--check", str(patch_path)], text=True, capture_output=True)
+        if check.returncode != 0:
+            msg = check.stderr.strip() or check.stdout.strip()
+            die(f"não foi possível reverter {wid} de forma limpa.\n{msg}\nNada foi alterado.")
+    for wid in reversed(wave_ids):
+        subprocess.run(["git", "apply", "-R", str(wave_dir(wid) / "wave.diff")], check=True)
+        set_wave_status(wid, "rejected", "Rejeitada pelo supervisor.")
+        print(f"ok: {wid} rejeitada")
+
+
+def cmd_init(_args: argparse.Namespace) -> None:
+    ensure_waves_dir()
+    print(f"ok: {WAVES_DIR}/ preparado e ignorado localmente via .git/info/exclude")
+
+
+def cmd_wave_create(args: argparse.Namespace) -> None:
+    ensure_waves_dir()
+    wave_id = next_wave_id()
+    wave = {
+        "id": wave_id,
+        "title": args.title,
+        "status": "running",
+        "type": args.type,
+        "risk": args.risk,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "base_ref": git_head(short=True),
+        "baseline": "stacked" if worktree_has_changes() else "clean",
+        "depends_on": args.depends_on or [],
+        "intent": args.intent or args.title,
+        "allowed": args.allow or [],
+        "forbidden": args.forbid or [],
+        "max_files": args.max_files,
+        "durability": args.durability or "A mudança deve falhar bem, orientar bem e deixar claro onde ajustar no futuro.",
+        "validation_plan": args.validation or "A definir antes de considerar a Wave pronta.",
+        "files": [],
+        "validations": [],
+        "result": "Pendente.",
+        "supervisor": "Aguardando approve, reject, continuação ou acúmulo.",
+    }
+    write_wave_files(wave)
+    print(wave_id)
+
+
+def cmd_wave_list(args: argparse.Namespace) -> None:
+    ensure_waves_dir()
+    registry = read_json(registry_path(), {"waves": []})
+    waves = registry.get("waves", [])
+    if args.json:
+        print(json.dumps(waves, indent=2, ensure_ascii=False))
+        return
+    if not waves:
+        print("nenhuma Wave encontrada")
+        return
+    for wave in waves:
+        print(f"{wave.get('id')}  {wave.get('status', 'unknown'):<10}  {wave.get('title', '')}")
+
+
+def cmd_wave_show(args: argparse.Namespace) -> None:
+    require_wave_id(args.id)
+    if args.json:
+        print(json.dumps(read_wave(args.id), indent=2, ensure_ascii=False))
+    else:
+        print(wave_md_path(args.id).read_text(encoding="utf-8"))
+
+
+def cmd_wave_park(args: argparse.Namespace) -> None:
+    snapshot_wave(args.id, status="parked", note=args.note)
+    print(f"ok: {args.id} estacionada")
+
+
+def cmd_wave_snapshot(args: argparse.Namespace) -> None:
+    snapshot_wave(args.id, status=args.status, note=args.note)
+    print(f"ok: snapshot salvo para {args.id}")
+
+
+def cmd_wave_status(args: argparse.Namespace) -> None:
+    if args.status is None:
+        print(read_wave(args.id).get("status", "unknown"))
+        return
+    set_wave_status(args.id, args.status, args.note)
+    print(f"ok: {args.id} → {args.status}")
+
+
+def cmd_wave_diff(args: argparse.Namespace) -> None:
+    require_wave_id(args.id)
+    patch_path = wave_dir(args.id) / "wave.diff"
+    if not patch_path.exists():
+        die(f"{args.id} não tem patch salvo")
+    if args.stat:
+        result = subprocess.run(["git", "apply", "--stat", str(patch_path)], text=True, capture_output=True)
+        print(result.stdout.strip())
+    else:
+        print(patch_path.read_text(encoding="utf-8"), end="")
+
+
+def cmd_wave_files(args: argparse.Namespace) -> None:
+    files = wave_files(args.id)
+    if args.json:
+        print(json.dumps(files, indent=2, ensure_ascii=False))
+    else:
+        for path in files:
+            print(path)
+
+
+def cmd_wave_validate(args: argparse.Namespace) -> None:
+    wave = read_wave(args.id)
+    validation = {"created_at": now_iso(), "summary": args.summary, "command": args.command, "result": args.result}
+    wave.setdefault("validations", []).append(validation)
+    if args.status:
+        wave["status"] = args.status
+    write_wave_files(wave)
+    print(f"ok: validação registrada para {args.id}")
+
+
+def discover_package_scripts(root: Path) -> dict[str, Any]:
+    package = root / "package.json"
+    commands = {}
+    if not package.exists():
+        return commands
+    try:
+        data = json.loads(package.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return commands
+    for name, command in data.get("scripts", {}).items():
+        commands[f"npm:{name}"] = {
+            "description": f"package.json script `{name}`",
+            "command": f"npm run {name}",
+            "source": "package.json",
+            "safety": "read",
+            "requires_ok": False,
+            "timeout": {"hard_sec": 300, "silence_sec": 60},
+        }
+    return commands
+
+
+def discover_make_targets(root: Path) -> dict[str, Any]:
+    makefile = root / "Makefile"
+    commands = {}
+    if not makefile.exists():
+        return commands
+    for line in makefile.read_text(encoding="utf-8", errors="ignore").splitlines():
+        match = re.match(r"^([A-Za-z0-9_.-]+):(?:\s|$)", line)
+        if match and not match.group(1).startswith("."):
+            target = match.group(1)
+            commands[f"make:{target}"] = {
+                "description": f"Makefile target `{target}`",
+                "command": f"make {target}",
+                "source": "Makefile",
+                "safety": "read",
+                "requires_ok": False,
+                "timeout": {"hard_sec": 300, "silence_sec": 60},
+            }
+    return commands
+
+
+def discover_script_files(root: Path) -> dict[str, Any]:
+    commands = {}
+    for directory in ["bin", "scripts", "tools"]:
+        base = root / directory
+        if not base.exists() or not base.is_dir():
+            continue
+        for path in sorted(base.iterdir()):
+            if not path.is_file():
+                continue
+            commands[f"{directory}:{path.name}"] = {
+                "description": f"script em `{path}`",
+                "command": f"./{path.as_posix()}",
+                "source": directory,
+                "safety": "unknown",
+                "requires_ok": True,
+                "timeout": {"hard_sec": 300, "silence_sec": 60},
+            }
+    return commands
+
+
+def load_catalog(root: Path) -> dict[str, Any]:
+    commands: dict[str, Any] = {}
+    for path in [root / ".tide/commands.json", root / ".tide.commands.json", root / "tide.commands.json"]:
+        if not path.exists():
+            continue
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise TideError(f"catálogo inválido em {path}: {exc}") from exc
+        for name, spec in data.get("commands", {}).items():
+            item = dict(spec)
+            item.setdefault("source", str(path.relative_to(root)))
+            item.setdefault("safety", "unknown")
+            item.setdefault("requires_ok", item.get("safety") in SENSITIVE_SAFETY)
+            item.setdefault("timeout", {"hard_sec": 300, "silence_sec": 60})
+            commands[name] = item
+    return commands
+
+
+def discover_commands() -> dict[str, Any]:
+    root = repo_root()
+    commands = {}
+    commands.update(discover_package_scripts(root))
+    commands.update(discover_make_targets(root))
+    commands.update(discover_script_files(root))
+    commands.update(load_catalog(root))
+    return commands
+
+
+def cmd_project_commands(args: argparse.Namespace) -> None:
+    commands = discover_commands()
+    if args.json:
+        print(json.dumps(commands, indent=2, ensure_ascii=False))
+        return
+    if not commands:
+        print("nenhum comando descoberto")
+        return
+    for name in sorted(commands):
+        item = commands[name]
+        safety = item.get("safety", "unknown")
+        source = item.get("source", "discovered")
+        print(f"{name:<28} {safety:<10} {source:<20} {item.get('description', '')}")
+
+
+def cmd_project_command(args: argparse.Namespace) -> None:
+    commands = discover_commands()
+    item = commands.get(args.name)
+    if not item:
+        die(f"comando não encontrado: {args.name}")
+    if args.json:
+        print(json.dumps(item, indent=2, ensure_ascii=False))
+        return
+    print(f"Nome: {args.name}")
+    print(f"Descrição: {item.get('description', '')}")
+    print(f"Comando: {item.get('command', '')}")
+    print(f"Origem: {item.get('source', '')}")
+    print(f"Safety: {item.get('safety', 'unknown')}")
+    print(f"Requires OK: {bool(item.get('requires_ok'))}")
+    timeout = item.get("timeout", {})
+    print(f"Timeout: hard={timeout.get('hard_sec', 300)}s silence={timeout.get('silence_sec', 60)}s")
+    args_spec = item.get("args") or {}
+    if args_spec:
+        print("Argumentos:")
+        for name, spec in args_spec.items():
+            print(f"- {name}: {'obrigatório' if spec.get('required') else 'opcional'} — {spec.get('description', '')}")
+    validations = item.get("validation") or []
+    if validations:
+        print("Validação:")
+        for validation in validations:
+            print(f"- {validation}")
+
+
+def render_command_template(template: str, values: dict[str, str]) -> str:
+    def replace(match: re.Match[str]) -> str:
+        key = match.group(1)
+        if key not in values:
+            raise TideError(f"argumento obrigatório ausente para template: {key}")
+        return shlex.quote(values[key])
+    return re.sub(r"\{([A-Za-z0-9_.-]+)\}", replace, template)
+
+
+@dataclass
+class RunResult:
+    code: int
+    timed_out: bool = False
+    silence_timed_out: bool = False
+
+
+def run_streaming(command: list[str], *, hard_sec: int, silence_sec: int | None) -> RunResult:
+    """Run a command with a hard timeout.
+
+    v0.4 keeps execution intentionally conservative: when a silence timeout is
+    lower than or equal to the hard timeout, it is used as the effective timeout.
+    Output is inherited from the current process to avoid pipe deadlocks in agent
+    runtimes. A future MCP runner can provide true streaming silence detection.
+    """
+    effective_timeout = hard_sec
+    silence_guard = bool(silence_sec and silence_sec <= hard_sec)
+    if silence_guard:
+        effective_timeout = silence_sec
+
+    process = subprocess.Popen(command)
+    try:
+        code = process.wait(timeout=effective_timeout)
+        return RunResult(code)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait()
+        return RunResult(125 if silence_guard else 124, timed_out=not silence_guard, silence_timed_out=silence_guard)
+
+
+def parse_key_values(items: Iterable[str]) -> dict[str, str]:
+    values = {}
+    for item in items:
+        if "=" not in item:
+            die(f"argumento inválido: {item}; use chave=valor")
+        key, value = item.split("=", 1)
+        values[key] = value
+    return values
+
+
+def cmd_project_run(args: argparse.Namespace) -> None:
+    commands = discover_commands()
+    item = commands.get(args.name)
+    if not item:
+        die(f"comando não encontrado: {args.name}")
+
+    values = parse_key_values(args.arg or [])
+    template = item.get("command")
+    if not template:
+        die(f"comando sem template executável: {args.name}")
+
+    command_str = render_command_template(template, values)
+    timeout = item.get("timeout", {})
+    hard_sec = int(args.timeout_sec or timeout.get("hard_sec", 300))
+    silence_sec = int(args.silence_sec or timeout.get("silence_sec", 60))
+
+    sensitive = item.get("requires_ok") or item.get("safety") in SENSITIVE_SAFETY
+    if sensitive and not args.yes and not args.dry_run:
+        die("comando sensível requer OK explícito: repita com --yes após aprovação do supervisor")
+
+    print(f"$ {command_str}")
+    if args.dry_run:
+        print("dry-run: comando não executado")
+        return
+
+    result = run_streaming(["bash", "-lc", command_str], hard_sec=hard_sec, silence_sec=silence_sec)
+    if result.timed_out:
+        print(f"timeout hard após {hard_sec}s: validação inconclusiva", file=sys.stderr)
+        raise SystemExit(124)
+    if result.silence_timed_out:
+        print(f"timeout por silêncio após {silence_sec}s: validação inconclusiva", file=sys.stderr)
+        raise SystemExit(125)
+    raise SystemExit(result.code)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    command = list(args.command or [])
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        die("informe comando após --")
+    result = run_streaming(command, hard_sec=args.timeout_sec, silence_sec=args.silence_sec)
+    if result.timed_out:
+        print(f"timeout hard após {args.timeout_sec}s: validação inconclusiva", file=sys.stderr)
+        raise SystemExit(124)
+    if result.silence_timed_out:
+        print(f"timeout por silêncio após {args.silence_sec}s: validação inconclusiva", file=sys.stderr)
+        raise SystemExit(125)
+    raise SystemExit(result.code)
+
+
+def add_wave_create_parser(subparsers: argparse._SubParsersAction) -> None:
+    wc = subparsers.add_parser("create")
+    wc.add_argument("--title", required=True)
+    wc.add_argument("--type", default="code")
+    wc.add_argument("--risk", default="unknown")
+    wc.add_argument("--max-files", type=int)
+    wc.add_argument("--depends-on", action="append")
+    wc.add_argument("--intent")
+    wc.add_argument("--allow", action="append")
+    wc.add_argument("--forbid", action="append")
+    wc.add_argument("--durability")
+    wc.add_argument("--validation")
+    wc.set_defaults(func=cmd_wave_create)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="tide", description="Tide Protocol CLI")
+    parser.add_argument("--version", action="store_true", help="mostra versão")
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser("init").set_defaults(func=cmd_init)
+    sub.add_parser("waves").set_defaults(func=cmd_wave_list)
+
+    approve = sub.add_parser("approve")
+    approve.add_argument("ids", nargs="+")
+    approve.add_argument("-m", "--message")
+    approve.add_argument("--allow-overlap", action="store_true")
+    approve.set_defaults(func=lambda args: commit_waves(args.ids, args.message, allow_overlap=args.allow_overlap))
+
+    reject = sub.add_parser("reject")
+    reject.add_argument("ids", nargs="+")
+    reject.set_defaults(func=lambda args: reject_waves(args.ids))
+
+    park = sub.add_parser("park")
+    park.add_argument("id")
+    park.add_argument("--note")
+    park.set_defaults(func=cmd_wave_park)
+
+    create_wave = sub.add_parser("create-wave")
+    create_wave.add_argument("title")
+    create_wave.set_defaults(func=lambda args: cmd_wave_create(argparse.Namespace(
+        title=args.title, type="code", risk="unknown", max_files=None, depends_on=[], intent=None,
+        allow=[], forbid=[], durability=None, validation=None,
+    )))
+
+    snapshot = sub.add_parser("snapshot")
+    snapshot.add_argument("id")
+    snapshot.set_defaults(func=lambda args: snapshot_wave(args.id, status="parked"))
+
+    wave = sub.add_parser("wave")
+    wave_sub = wave.add_subparsers(dest="wave_command")
+    add_wave_create_parser(wave_sub)
+
+    wl = wave_sub.add_parser("list")
+    wl.add_argument("--json", action="store_true")
+    wl.set_defaults(func=cmd_wave_list)
+
+    ws = wave_sub.add_parser("show")
+    ws.add_argument("id")
+    ws.add_argument("--json", action="store_true")
+    ws.set_defaults(func=cmd_wave_show)
+
+    wp = wave_sub.add_parser("park")
+    wp.add_argument("id")
+    wp.add_argument("--note")
+    wp.set_defaults(func=cmd_wave_park)
+
+    wss = wave_sub.add_parser("snapshot")
+    wss.add_argument("id")
+    wss.add_argument("--status", default="parked", choices=sorted(VALID_STATUSES))
+    wss.add_argument("--note")
+    wss.set_defaults(func=cmd_wave_snapshot)
+
+    wst = wave_sub.add_parser("status")
+    wst.add_argument("id")
+    wst.add_argument("status", nargs="?", choices=sorted(VALID_STATUSES))
+    wst.add_argument("--note")
+    wst.set_defaults(func=cmd_wave_status)
+
+    wd = wave_sub.add_parser("diff")
+    wd.add_argument("id")
+    wd.add_argument("--stat", action="store_true")
+    wd.set_defaults(func=cmd_wave_diff)
+
+    wf = wave_sub.add_parser("files")
+    wf.add_argument("id")
+    wf.add_argument("--json", action="store_true")
+    wf.set_defaults(func=cmd_wave_files)
+
+    wv = wave_sub.add_parser("validate")
+    wv.add_argument("id")
+    wv.add_argument("--summary", required=True)
+    wv.add_argument("--command")
+    wv.add_argument("--result")
+    wv.add_argument("--status", choices=sorted(VALID_STATUSES))
+    wv.set_defaults(func=cmd_wave_validate)
+
+    wa = wave_sub.add_parser("approve")
+    wa.add_argument("ids", nargs="+")
+    wa.add_argument("-m", "--message")
+    wa.add_argument("--allow-overlap", action="store_true")
+    wa.set_defaults(func=lambda args: commit_waves(args.ids, args.message, allow_overlap=args.allow_overlap))
+
+    wr = wave_sub.add_parser("reject")
+    wr.add_argument("ids", nargs="+")
+    wr.set_defaults(func=lambda args: reject_waves(args.ids))
+
+    project = sub.add_parser("project")
+    project_sub = project.add_subparsers(dest="project_command")
+
+    pc = project_sub.add_parser("commands")
+    pc.add_argument("--json", action="store_true")
+    pc.set_defaults(func=cmd_project_commands)
+
+    pshow = project_sub.add_parser("command")
+    pshow.add_argument("name")
+    pshow.add_argument("--json", action="store_true")
+    pshow.set_defaults(func=cmd_project_command)
+
+    prun = project_sub.add_parser("run")
+    prun.add_argument("name")
+    prun.add_argument("--arg", action="append")
+    prun.add_argument("--timeout-sec", type=int)
+    prun.add_argument("--silence-sec", type=int)
+    prun.add_argument("--dry-run", action="store_true")
+    prun.add_argument("--yes", action="store_true")
+    prun.set_defaults(func=cmd_project_run)
+
+    run = sub.add_parser("run")
+    run.add_argument("--timeout-sec", type=int, default=300)
+    run.add_argument("--silence-sec", type=int, default=60)
+    run.add_argument("command", nargs=argparse.REMAINDER)
+    run.set_defaults(func=cmd_run)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.version:
+        print(VERSION)
+        return
+    if not hasattr(args, "func"):
+        parser.print_help()
+        return
+    try:
+        args.func(args)
+    except TideError as exc:
+        die(str(exc))
+
+
+if __name__ == "__main__":
+    main()
