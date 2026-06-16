@@ -9,6 +9,9 @@
 - MCP seguro funcional em `mcp/tide_mcp.py` com tools context-only.
 - Testes do contrato MCP seguro.
 - Instalador agora copia o módulo MCP para a configuração global do OpenCode.
+- Guia de instalação global e configuração MCP em `docs/install.md`.
+- Guia de catálogo de comandos do projeto em `docs/project-command-catalog.md`.
+- Guia de workflow do supervisor em `docs/supervisor-workflow.md`.
 
 ### Observações
 - Estas mudanças preparam a próxima versão estável acima de 0.4.0.
