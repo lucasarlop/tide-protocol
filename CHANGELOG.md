@@ -8,6 +8,9 @@
 - `tide project command` e `tide project run` com argumentos, safety, dry-run e `--yes` para comandos sensíveis.
 - `tide run` para executar comandos diretos com timeout conservador.
 - Bloqueio de approve isolado quando outra Wave ativa toca os mesmos arquivos.
+- Contrato inicial seguro do Tide MCP em `mcp/tide_mcp.py`.
+- Documentação do MCP seguro em `mcp/README.md`.
+- Estrutura inicial de testes em `tests/`.
 
 ### Alterado
 - README atualizado para refletir a sintaxe real do CLI 0.4.0.
@@ -15,6 +18,7 @@
 
 ### Observações
 - O timeout por silêncio em 0.4.0 usa timeout efetivo conservador; detecção streaming real fica para o runner/MCP futuro.
+- O MCP inicial é deliberadamente seguro: contexto e planejamento primeiro; execução operacional permanece no CLI `tide` sob supervisão.
 
 ## [0.3.0] — 2026-06-16
 
