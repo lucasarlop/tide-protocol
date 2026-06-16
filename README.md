@@ -4,6 +4,12 @@ Tide Protocol é um runtime de desenvolvimento assistido por IA para OpenCode, b
 
 O software é o mar. As Waves são movimentos controlados sobre ele: podem investigar, implementar, validar, operar, revisar, estacionar, ser aprovadas, rejeitadas ou agrupadas em commits.
 
+## Status
+
+Versão atual: **0.2.0**.
+
+Esta versão entrega o runtime local de Waves com snapshots por árvore Git, approve/reject seguro e instalação global para OpenCode. MCP Tide e integração profunda com `code-review-graph` ficam para próximas Waves.
+
 ## Ideia central
 
 O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
@@ -14,7 +20,7 @@ O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
 4. age com liberdade dentro da fronteira;
 5. para se precisar cruzar a fronteira;
 6. entrega evidência ao supervisor;
-7. o supervisor decide se aprova, rejeita, acumula ou commita.
+7. o supervisor decide se aprova, rejeita, acumula ou continua.
 
 ## Vocabulário
 
@@ -25,43 +31,7 @@ O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
 - **Checkpoint**: ponto em que o supervisor decide o próximo movimento.
 - **Código durável**: código que falha bem, orienta bem, opera bem e deixa claro onde ajustar.
 
-## Waves
-
-Toda Wave relevante deve ter representação local em arquivo:
-
-```txt
-.opencode/waves/
-  registry.json
-  TIDE-0001/
-    wave.md
-    wave.diff
-    files.json
-    validations.json
-```
-
-Esse diretório é estado operacional local e deve ficar ignorado pelo Git.
-
-Uma Wave pode ficar `parked`: concluída ou interrompida, mas ainda não aprovada nem rejeitada. Isso permite seguir para outras Waves e decidir depois se elas serão agrupadas, rejeitadas ou commitadas separadamente.
-
-## Comandos principais
-
-```txt
-/waves
-  Lista Waves abertas, estacionadas, rejeitadas e commitadas.
-
-/wave <wave-id>
-  Mostra detalhes de uma Wave.
-
-/approve <wave-id>
-  Adiciona as modificações da Wave em um commit com mensagem gerada automaticamente contendo o ID.
-
-/reject <wave-id>
-  Desfaz as alterações da Wave, sem destruir mudanças de outras Waves silenciosamente.
-```
-
-`/approve` e `/reject` são opcionais no fim de cada Wave. O supervisor pode continuar trabalhando e decidir depois.
-
-## Instalação
+## Instalação global
 
 ```bash
 git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
@@ -69,32 +39,227 @@ cd /tmp/tide-protocol
 bash install.sh
 ```
 
-Por padrão, o instalador copia agentes, comandos, skills e regras para a configuração global do OpenCode em `~/.config/opencode/`, evitando poluir projetos.
+O instalador copia agentes, comandos, skills e regras para a configuração global do OpenCode em `~/.config/opencode/` e instala o CLI em `~/.local/bin/tide`.
 
-Depois disso:
+Opções:
+
+```bash
+bash install.sh --dry-run
+bash install.sh --force
+bash install.sh --config-dir /path/to/opencode-config
+bash install.sh --bin-dir /path/to/bin
+```
+
+Depois:
 
 ```bash
 cd qualquer-projeto
 opencode
 ```
 
-O Tide estará disponível globalmente.
+## Estado local de Waves
 
-## Estrutura
+Em cada projeto:
 
-```txt
-tide-protocol/
-  install.sh
-  bin/tide
-  opencode/
-    agents/
-    commands/
-    rules/
-    skills/
+```bash
+tide init
 ```
 
-## Status
+Isso cria estado operacional local em:
 
-Versão inicial: `0.1.0`.
+```txt
+.opencode/waves/
+  registry.json
+  TIDE-0001/
+    wave.md
+    wave.json
+    wave.diff
+    files.json
+    validations.json
+```
 
-Esta primeira versão implementa o bootstrap global do protocolo. MCP, integração profunda com code-review-graph e runtime real de patches por Wave ficam para próximas Waves.
+Esse diretório é ignorado localmente via `.git/info/exclude`, não via `.gitignore`. Assim o Tide não polui o repositório do projeto.
+
+## Ciclo de Wave
+
+```txt
+running     → Wave existe e está em andamento
+parked      → Wave parou, mas ainda não foi aprovada nem rejeitada
+validated   → Wave tem evidência, mas ainda aguarda decisão do supervisor
+committed   → Wave foi aprovada em commit
+rejected    → Wave foi revertida
+failed      → Wave falhou ou ficou insegura/inconclusiva
+```
+
+Importante:
+
+```txt
+parked/validated ≠ committed
+```
+
+Você pode seguir em várias Waves antes de decidir o que aprovar ou rejeitar.
+
+## Comandos slash
+
+```txt
+/waves
+```
+
+Lista Waves abertas, estacionadas, rejeitadas e commitadas.
+
+```txt
+/wave TIDE-0001
+```
+
+Mostra detalhes de uma Wave.
+
+```txt
+/approve TIDE-0001
+```
+
+Commita a Wave com mensagem incluindo o ID.
+
+```txt
+/approve TIDE-0001 TIDE-0002
+```
+
+Commita múltiplas Waves juntas, na ordem informada.
+
+```txt
+/reject TIDE-0001
+```
+
+Reverte a Wave, se o patch reverso aplicar limpo.
+
+```txt
+/btw <pergunta>
+/teach <tema>
+```
+
+Bypasses: não alteram Waves nem código.
+
+## CLI
+
+```bash
+tide init
+```
+
+Inicializa `.opencode/waves/` no projeto atual.
+
+```bash
+tide wave create --title "Corrigir validação de DATABASE_URL" --type code --risk medium --max-files 3
+```
+
+Cria a próxima Wave e captura uma baseline da árvore atual do worktree.
+
+```bash
+tide wave snapshot TIDE-0001 --status parked --note "Implementação pronta para validação manual"
+```
+
+Captura o diff da Wave desde a baseline até o worktree atual.
+
+```bash
+tide wave park TIDE-0001 --validation "pytest tests/config -x --tb=short"
+```
+
+Atalho para snapshot estacionado.
+
+```bash
+tide wave list
+```
+
+Lista Waves.
+
+```bash
+tide wave show TIDE-0001
+```
+
+Mostra `wave.md`.
+
+```bash
+tide wave status TIDE-0001
+```
+
+Mostra status curto.
+
+```bash
+tide wave approve TIDE-0001
+```
+
+Cria commit a partir do patch salvo da Wave.
+
+```bash
+tide wave approve TIDE-0001 TIDE-0002
+```
+
+Cria commit agrupando as Waves informadas.
+
+```bash
+tide wave reject TIDE-0001
+```
+
+Aplica o reverse patch da Wave.
+
+Aliases compatíveis:
+
+```bash
+tide waves
+tide wave TIDE-0001
+tide approve TIDE-0001
+tide reject TIDE-0001
+tide snapshot TIDE-0001
+tide park TIDE-0001
+```
+
+## Isolamento de Waves
+
+Cada Wave captura uma baseline da árvore do worktree no momento da criação. O snapshot compara essa baseline com o worktree atual.
+
+Isso permite:
+
+- estacionar Waves sem commit;
+- criar novas Waves sobre mudanças ainda não commitadas;
+- aprovar uma Wave isolada quando o patch aplicar limpo;
+- aprovar múltiplas Waves juntas;
+- rejeitar uma Wave quando o reverse patch aplicar limpo.
+
+Se uma Wave depender de outra no mesmo hunk/contexto, o approve/reject isolado deve falhar e pedir ação agrupada ou manual. O Tide prefere parar a destruir mudança silenciosamente.
+
+## Agentes
+
+Agente principal:
+
+- `tide` — orquestrador; decide intenção, risco, fronteira, Wave e subagentes.
+
+Subagentes:
+
+- `tide-guide` — dúvidas sobre o projeto, read-only.
+- `tide-runner` — implementa mudanças dentro da fronteira.
+- `tide-operator` — comandos, scripts, banco, SSH e rotinas operacionais.
+- `tide-verifier` — validações/testes com runtime policy.
+- `tide-steward` — estado de Waves, approve/reject e commits.
+- `tide-reviewer-durability` — código durável.
+- `tide-reviewer-simplicity` — simplicidade e overengineering.
+- `tide-reviewer-tests` — qualidade das verificações.
+- `tide-reviewer-security` — auth, permissões, tokens, secrets, SSH e produção.
+- `tide-reviewer-data` — banco, migrations, queries, integridade e reprocessamentos.
+- `tide-reviewer-infra` — Docker, CI/CD, deploy, env vars, filas, workers, cache e runtime.
+
+## Princípios
+
+O Tide reaproveita os princípios do `opencode-pack`:
+
+- comunicação direta;
+- simplicidade primeiro;
+- não inventar escopo;
+- menos código;
+- decisões explícitas;
+- honestidade técnica;
+- evitar overengineering.
+
+E acrescenta:
+
+- código deve durar;
+- comandos longos precisam de timeout/critério de parada;
+- o supervisor decide approve/reject/commit;
+- commit nunca é automático.
