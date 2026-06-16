@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0] — 2026-06-16
+
+### Adicionado
+- Runtime Python real do CLI `tide`, substituindo o bash inicial.
+- `tide wave validate`, `tide wave diff`, `tide wave files` e status consultável.
+- `tide project command` e `tide project run` com argumentos, safety, dry-run e `--yes` para comandos sensíveis.
+- `tide run` para executar comandos diretos com timeout conservador.
+- Bloqueio de approve isolado quando outra Wave ativa toca os mesmos arquivos.
+
+### Alterado
+- README atualizado para refletir a sintaxe real do CLI 0.4.0.
+- `tide wave approve` e `tide wave reject` agora existem como aliases dos comandos top-level.
+
+### Observações
+- O timeout por silêncio em 0.4.0 usa timeout efetivo conservador; detecção streaming real fica para o runner/MCP futuro.
+
 ## [0.3.0] — 2026-06-16
 
 ### Adicionado
