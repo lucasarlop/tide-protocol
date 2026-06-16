@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] — 2026-06-16
+
+### Adicionado
+- CI com validação de sintaxe do CLI, testes unitários e dry-run do instalador.
+- Processo de release em `docs/release.md`.
+- Política de Código Vivo em `docs/live-code.md`.
+- MCP seguro funcional em `mcp/tide_mcp.py` com tools context-only.
+- Testes do contrato MCP seguro.
+- Instalador agora copia o módulo MCP para a configuração global do OpenCode.
+
+### Observações
+- Esta versão fecha o MVP operacional do Tide Protocol: Waves, catálogo de comandos, runtime supervisionado, agentes globais, CI e MCP seguro de contexto.
+
 ## [0.4.0] — 2026-06-16
 
 ### Adicionado
