@@ -5,6 +5,12 @@ agent: tide-steward
 
 Liste as Waves do projeto atual.
 
-Use `tide waves` se o CLI estiver disponível. Se não estiver, leia `.opencode/waves/` diretamente.
+Use:
 
-Mostre: id, status, título e próximo passo recomendado.
+```bash
+tide wave list
+```
+
+Se o CLI não estiver disponível, leia `.opencode/waves/registry.json` e os `wave.md` relevantes.
+
+Mostre: id, status, tipo, risco, título e próximo passo recomendado.
