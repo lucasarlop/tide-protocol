@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased] — 2026-06-16
+
+### Adicionado
+- Política de modelos/effort em `docs/model-policy.md`, incluindo uso de medium, high e xhigh por risco.
+- Roadmap para 1.0 em `docs/roadmap-to-1.0.md`.
+- Consolidação dos ajustes de agentes em `docs/agent-adjustments.md`.
+
+### Alterado
+- `tide` agora explicita que o agente principal orquestra e deve delegar código ao `tide-runner`.
+- `tide-runner` passa a receber orientação explícita de effort medium/high/xhigh.
+- `tide-verifier` passa a exigir `tide run` ou `tide project run` para validações executáveis, salvo justificativa.
+- `tide-steward` foi reforçado como fluxo curto, mecânico e de baixo custo para approve/reject.
+
 ## [0.5.0] — 2026-06-16
 
 ### Adicionado
