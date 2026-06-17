@@ -1,6 +1,7 @@
 ---
 description: Revisa se testes e validações provam o risco certo da Wave.
 mode: subagent
+steps: 10
 permission:
   read: allow
   list: allow
