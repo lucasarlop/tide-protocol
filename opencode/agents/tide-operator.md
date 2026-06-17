@@ -1,6 +1,7 @@
 ---
 description: Descobre e orienta comandos reais do projeto: testes, scripts, banco, SSH, geração e reprocessamentos.
 mode: subagent
+steps: 14
 permission:
   read: allow
   list: allow
