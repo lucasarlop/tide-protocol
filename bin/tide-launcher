@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Tide launcher installed as `tide`.
+
+Delegates regular commands to `tide-cli` and provides convenience commands such as
+`tide opencode`.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "opencode-tide"
+
+
+def find_tide_cli() -> str:
+    here = Path(__file__).resolve()
+    sibling = here.with_name("tide-cli")
+    if sibling.exists():
+        return str(sibling)
+    found = shutil.which("tide-cli")
+    if found:
+        return found
+    return str(here.with_name("tide"))
+
+
+def run_tide_cli(args: list[str]) -> int:
+    return subprocess.call([find_tide_cli(), *args])
+
+
+def run_opencode(args: list[str]) -> int:
+    config_dir = os.environ.get("TIDE_CONFIG_DIR") or str(DEFAULT_CONFIG_DIR)
+    init = True
+    forwarded: list[str] = []
+    i = 0
+    while i < len(args):
+        item = args[i]
+        if item == "--no-init":
+            init = False
+            i += 1
+        elif item == "--config-dir":
+            if i + 1 >= len(args):
+                print("erro: --config-dir requer valor", file=sys.stderr)
+                return 1
+            config_dir = args[i + 1]
+            i += 2
+        elif item.startswith("--config-dir="):
+            config_dir = item.split("=", 1)[1]
+            i += 1
+        else:
+            forwarded.append(item)
+            i += 1
+
+    if init:
+        code = run_tide_cli(["init"])
+        if code != 0:
+            return code
+
+    env = os.environ.copy()
+    env["OPENCODE_CONFIG_DIR"] = config_dir
+    return subprocess.call(["opencode", *forwarded], env=env)
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) > 1 and argv[1] in {"opencode", "open"}:
+        return run_opencode(argv[2:])
+    return run_tide_cli(argv[1:])
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv))
