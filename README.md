@@ -1,6 +1,6 @@
 # Tide Protocol
 
-Tide Protocol é um runtime de desenvolvimento assistido por IA para OpenCode, baseado em **Waves identificáveis**, **fronteiras explícitas**, **código durável**, **validação proporcional ao risco** e **supervisão humana**.
+Tide Protocol é um runtime de desenvolvimento assistido por IA para OpenCode, baseado em **Waves identificáveis**, **fronteiras explícitas**, **código durável**, **validação proporcional ao risco**, **hardgates**, **SMART** e **supervisão humana**.
 
 O software é o mar. As Waves são movimentos controlados sobre ele: podem investigar, implementar, validar, operar, revisar, estacionar, ser aprovadas, rejeitadas ou agrupadas em commits.
 
@@ -8,7 +8,7 @@ O software é o mar. As Waves são movimentos controlados sobre ele: podem inves
 
 Versão atual: **0.5.0**.
 
-Esta versão entrega o MVP operacional do Tide: CLI Python com Waves locais, approve/reject supervisionado, catálogo de comandos de projeto, runtime com timeout, agentes/comandos/skills globais para OpenCode, CI, guias de instalação/operação, Código Vivo e MCP seguro de contexto.
+Esta versão entrega o MVP operacional do Tide: CLI Python com Waves locais, approve/reject supervisionado, catálogo de comandos de projeto, runtime com timeout, agentes/comandos/skills globais para OpenCode, CI, instalação isolada, launcher `tide opencode`, `tide doctor`, guias de instalação/operação, Código Vivo, MCP seguro de contexto, hardgates, SMART, commit safety e política dinâmica de modelo/effort.
 
 ## Ideia central
 
@@ -16,7 +16,7 @@ O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
 
 1. o agente entende a intenção;
 2. define a menor Wave segura;
-3. declara fronteiras e validação;
+3. declara fronteiras, SMART, hardgates e validação;
 4. age com liberdade dentro da fronteira;
 5. para se precisar cruzar a fronteira;
 6. entrega evidência ao supervisor;
@@ -27,35 +27,50 @@ O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
 - **Mar**: o software atual. A fonte da verdade é o código presente, não histórico de decisões.
 - **Wave**: unidade identificável de movimento sobre o software. Exemplo: `TIDE-0001`.
 - **Fronteira**: o que a Wave pode tocar, executar ou decidir.
+- **Hardgate**: condição que obriga o agente a parar e pedir checkpoint antes de agir.
+- **SMART**: critério mínimo para uma Wave ser específica, mensurável, alcançável, relevante e time-boxed.
 - **Evidência**: prova proporcional ao risco: teste, comando, diff, log, checklist ou validação manual.
 - **Checkpoint**: ponto em que o supervisor decide o próximo movimento.
 - **Código durável**: código que falha bem, orienta bem, opera bem e deixa claro onde ajustar.
 
-## Instalação global
+## Instalação recomendada
+
+O padrão seguro é instalação isolada, para não afetar projetos que já usam `opencode-pack` ou outra configuração global do OpenCode.
 
 ```bash
 git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
 cd /tmp/tide-protocol
-bash install.sh
-```
-
-O instalador copia agentes, comandos, skills e regras para a configuração global do OpenCode em `~/.config/opencode/` e instala o CLI em `~/.local/bin/tide`.
-
-Opções:
-
-```bash
-bash install.sh --dry-run
 bash install.sh --force
-bash install.sh --config-dir /path/to/opencode-config
-bash install.sh --bin-dir /path/to/bin
 ```
 
-Depois:
+Isso instala:
+
+```txt
+~/.config/opencode-tide/   agentes, comandos, skills, regras e MCP
+~/.local/bin/tide          launcher Tide
+~/.local/bin/tide-cli      CLI operacional real
+~/.local/bin/tide.config   config usada pelo launcher
+```
+
+Abra um projeto com:
 
 ```bash
 cd qualquer-projeto
-tide init
-opencode
+tide opencode
+```
+
+`tide opencode` roda `tide init` por padrão e abre o OpenCode com a config isolada do Tide.
+
+Diagnóstico:
+
+```bash
+tide doctor
+```
+
+Instalação global exige intenção explícita:
+
+```bash
+bash install.sh --global --force
 ```
 
 ## Estado local de Waves
@@ -92,9 +107,9 @@ Importante:
 parked/validated ≠ committed
 ```
 
-Você pode seguir em várias Waves antes de decidir o que aprovar ou rejeitar.
+Depois de `validated`, o Tide evita rebaixar a Wave para `parked` sem confirmação explícita.
 
-## CLI
+## CLI essencial
 
 Criar uma Wave:
 
@@ -105,13 +120,16 @@ tide wave create --title "Corrigir validação de DATABASE_URL" --type code --ri
 Estacionar a Wave com snapshot do diff atual:
 
 ```bash
-tide wave park TIDE-0001 --note "Implementação pronta para validação manual"
+tide wave park TIDE-0001 --note "Implementação pronta para validação"
 ```
 
-Registrar evidência:
+Finalizar uma Wave validada em uma operação:
 
 ```bash
-tide wave validate TIDE-0001 --summary "pytest tests/config -x passou" --command "pytest tests/config -x" --result "passed" --status validated
+tide wave finish TIDE-0001 \
+  --summary "teste escopado passou" \
+  --command "tide run --timeout-sec 120 --silence-sec 60 -- python3 -m unittest tests.test_config" \
+  --result passed
 ```
 
 Inspecionar:
@@ -132,15 +150,24 @@ tide approve TIDE-0001 TIDE-0002
 tide reject TIDE-0001
 ```
 
-Aliases compatíveis:
+## Commit safety
+
+`approve` é restritivo por padrão. Ele exige:
+
+- índice Git limpo antes do approve;
+- Wave `validated`;
+- arquivos registrados;
+- snapshot salvo;
+- diff atual coerente com o snapshot salvo;
+- ausência de overlap com Waves ativas, salvo decisão explícita;
+- commit sem push.
+
+Flags de bypass existem somente para hardgates supervisionados:
 
 ```bash
-tide waves
-tide create-wave "Título curto"
-tide snapshot TIDE-0001
-tide park TIDE-0001
-tide wave approve TIDE-0001
-tide wave reject TIDE-0001
+tide approve TIDE-0001 --allow-unvalidated
+tide approve TIDE-0001 --allow-snapshot-drift
+tide approve TIDE-0001 --allow-overlap
 ```
 
 ## Catálogo de comandos do projeto
@@ -150,19 +177,13 @@ O Tide descobre comandos de:
 - `package.json`;
 - `Makefile`;
 - scripts em `bin/`, `scripts/` e `tools/`;
-- catálogos opcionais em `.tide/commands.json`, `.tide.commands.json` ou `tide.commands.json`.
+- catálogos opcionais em `.tide/commands.json`, `.tide.commands.json`, `tide.commands.json` ou `.opencode/tide/commands.json`.
 
 Listar comandos:
 
 ```bash
 tide project commands
 tide project commands --json
-```
-
-Explicar um comando:
-
-```bash
-tide project command regenerate_book
 ```
 
 Executar comando catalogado:
@@ -172,9 +193,9 @@ tide project run regenerate_book --arg book_id=123 --dry-run
 tide project run regenerate_book --arg book_id=123 --yes
 ```
 
-Comandos com `safety` sensível ou `requires_ok: true` exigem `--yes`, que representa OK explícito do supervisor. Timeout retorna resultado inconclusivo, não sucesso.
+Comandos com `safety` sensível ou `requires_ok: true` exigem `--yes`, que representa OK explícito do supervisor.
 
-Também há execução direta com timeout:
+Execução direta com timeout:
 
 ```bash
 tide run --timeout-sec 120 --silence-sec 60 -- pytest tests/config -x
@@ -187,15 +208,41 @@ Códigos especiais:
 125 = timeout por silêncio
 ```
 
+## Hardgates e SMART
+
+Hardgates comuns:
+
+- produção;
+- deploy;
+- CI/CD;
+- SSH;
+- banco de dados;
+- migrations;
+- reprocessamento;
+- scripts destrutivos;
+- auth/permissões/tokens/secrets;
+- API pública;
+- nova dependência;
+- alteração ampla em muitos arquivos;
+- validação inconclusiva.
+
+Wave relevante deve ser SMART antes de executar: específica, mensurável, alcançável, relevante e time-boxed.
+
+## Modelo e modo fast
+
+O modo padrão é **balanced-quality dinâmico**. O Tide escolhe esforço por risco:
+
+```txt
+medium → tarefa clara, pequena e baixo risco
+high   → código relevante, lógica de domínio, durabilidade ou testes não triviais
+xhigh  → segurança, dados, infra crítica, produção, permissões ou código de alto impacto
+```
+
+O supervisor pode pedir `modo fast` quando quiser priorizar velocidade. Fast mode reduz investigação ampla e reviewers desnecessários, mas preserva hardgates.
+
 ## Tide MCP
 
 O Tide MCP começa como camada segura de contexto e planejamento. Ele não substitui os agentes do OpenCode e não transforma o MCP em executor cego de comandos.
-
-Arquivo atual:
-
-```txt
-mcp/tide_mcp.py
-```
 
 Contrato inicial:
 
@@ -220,39 +267,11 @@ código atual + git status + diff + validações reais
 
 Se não houver índice, o agente deve usar leitura direta do código atual.
 
-## Comandos slash
-
-```txt
-/waves
-/wave TIDE-0001
-/approve TIDE-0001
-/approve TIDE-0001 TIDE-0002
-/reject TIDE-0001
-/park TIDE-0001
-/project-commands
-/project-run <comando catalogado>
-/btw <pergunta>
-/teach <tema>
-```
-
-`/approve` e `/reject` só acontecem quando o supervisor pede explicitamente. Commit nunca é automático.
-
-## Isolamento de Waves
-
-Cada Wave salva arquivos, patch e metadados locais. O Tide prefere parar a destruir mudança silenciosamente.
-
-Regras atuais:
-
-- approve de uma Wave faz commit dos arquivos registrados no snapshot;
-- approve de múltiplas Waves agrupa os arquivos registrados;
-- se houver outra Wave ativa tocando o mesmo arquivo, o approve isolado bloqueia, salvo `--allow-overlap`;
-- reject usa reverse patch e falha se não aplicar limpo.
-
 ## Agentes
 
 Agente principal:
 
-- `tide` — orquestrador; decide intenção, risco, fronteira, Wave e subagentes.
+- `tide` — orquestrador; decide intenção, risco, fronteira, Wave, hardgates, effort e subagentes.
 
 Subagentes:
 
@@ -284,5 +303,6 @@ E acrescenta:
 
 - código deve durar;
 - comandos longos precisam de timeout/critério de parada;
+- hardgates interrompem execução;
 - o supervisor decide approve/reject/commit;
 - commit nunca é automático.
