@@ -38,13 +38,27 @@ permission:
 ---
 ```
 
-## Status do TIDE-0023
+## Observabilidade em sessões reais
+
+Enquanto `model` e `variant` não estiverem fixados no frontmatter, a UI do OpenCode pode não mostrar claramente o modelo/variant efetivo de subagentes dentro do transcript.
+
+Regra Tide atual:
+
+- o agente principal deve enviar `Perfil solicitado` no briefing do subagente;
+- o subagente deve devolver `Perfil solicitado` e `Perfil observável` no resultado;
+- se a runtime não expuser modelo/variant para o subagente, o resultado deve dizer `não exposto pela runtime`;
+- nenhum agente deve inventar modelo/variant efetivo.
+
+Isso não garante qual modelo foi usado pela runtime, mas torna auditável o que o Tide pediu e o que foi possível observar.
+
+## Status
 
 Concluído:
 
 - Aplicar `steps` em todos os agentes Tide.
 - Reduzir custo do `tide-steward`, `tide-verifier` e `tide-guide` por limite de passos.
 - Manter `tide-runner` e reviewers críticos com mais espaço de raciocínio.
+- Exigir reporte de perfil solicitado/observável em `tide-runner` e `tide-verifier`.
 
 Pendente:
 
