@@ -9,6 +9,21 @@ compatibility: opencode
 
 Use esta skill para qualquer tarefa relevante que deva virar uma Wave.
 
+## Preflight antes de criar Wave
+
+Antes de criar uma Wave em projeto real, confira o working tree:
+
+```bash
+git status --short
+```
+
+Se houver arquivos modificados antes da Wave:
+
+- não crie Wave automaticamente como se o estado fosse limpo;
+- reporte a sujeira inicial;
+- peça decisão do supervisor: limpar, continuar como Wave empilhada, criar Wave separada, ou restringir explicitamente a fronteira;
+- só continue sem perguntar quando o supervisor já tiver dito que o estado sujo é esperado e qual fronteira deve ser considerada.
+
 ## Wave mínima
 Toda Wave deve ter:
 - ID `TIDE-000N`;
