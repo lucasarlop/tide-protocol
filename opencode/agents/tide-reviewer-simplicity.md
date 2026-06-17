@@ -1,6 +1,7 @@
 ---
 description: Revisa simplicidade, escopo e overengineering.
 mode: subagent
+steps: 8
 permission:
   read: allow
   list: allow
