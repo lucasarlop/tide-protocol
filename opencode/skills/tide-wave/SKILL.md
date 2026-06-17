@@ -19,6 +19,17 @@ Toda Wave deve ter:
 - evidência;
 - checkpoint.
 
+## Fronteira suja
+
+Antes de concluir uma Wave, confira se os arquivos modificados pertencem à fronteira.
+
+Se existir arquivo modificado fora da fronteira, como log de sessão, artefato local, relatório, arquivo temporário ou mudança pré-existente:
+
+- não use `tide wave finish`;
+- não ofereça `/approve`;
+- reporte o arquivo fora da fronteira;
+- peça decisão do supervisor: limpar, separar em outra Wave, estacionar separado ou incluir explicitamente.
+
 ## Encerramento
 
 Quando a implementação ainda não está validada:
