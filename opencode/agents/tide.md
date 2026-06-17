@@ -18,8 +18,17 @@ permission:
     "git diff -- *": allow
     "git diff --stat -- *": allow
     "git diff --name-only*": allow
+    "rtk git status*": allow
+    "rtk git status --short": allow
+    "rtk git status --short -- *": allow
+    "rtk git diff*": allow
+    "rtk git diff -- *": allow
+    "rtk git diff --stat -- *": allow
+    "rtk git diff --name-only*": allow
     "git log*": allow
+    "rtk git log*": allow
     "ls *": allow
+    "rtk ls*": allow
     "find *": allow
     "grep *": allow
   task:
