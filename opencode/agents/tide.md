@@ -1,6 +1,7 @@
 ---
 description: Agente principal do Tide Protocol. Decide intenção, fronteira, Wave e subagentes conforme risco.
 mode: primary
+steps: 20
 permission:
   read: allow
   list: allow
