@@ -24,10 +24,10 @@ Opções:
   -h, --help             mostra ajuda
 
 Recomendado para primeiro teste:
-  bash install.sh --config-dir="$HOME/.config/opencode-tide" --bin-dir="$HOME/.local/bin" --force
+  bash install.sh --force
 
 Uso com config isolada:
-  OPENCODE_CONFIG_DIR="$HOME/.config/opencode-tide" opencode
+  tide opencode
 EOF
 }
 
@@ -96,11 +96,14 @@ copy_tree "$ROOT/mcp" "$CONFIG_DIR/tide-mcp"
 say ""
 say "Instalando CLI tide:"
 if [ "$DRY_RUN" = "1" ]; then
+  say "  would copy: $BIN_DIR/tide-cli"
   say "  would copy: $BIN_DIR/tide"
 else
   mkdir -p "$BIN_DIR"
-  cp "$ROOT/bin/tide" "$BIN_DIR/tide"
-  chmod +x "$BIN_DIR/tide"
+  cp "$ROOT/bin/tide" "$BIN_DIR/tide-cli"
+  cp "$ROOT/bin/tide-launcher" "$BIN_DIR/tide"
+  chmod +x "$BIN_DIR/tide-cli" "$BIN_DIR/tide"
+  say "  ok: $BIN_DIR/tide-cli"
   say "  ok: $BIN_DIR/tide"
 fi
 
@@ -111,7 +114,7 @@ if [ "$CONFIG_DIR" = "$DEFAULT_GLOBAL" ]; then
   say "  cd <projeto> && tide init && opencode"
 else
   say "Abra um projeto com a config isolada:"
-  say "  cd <projeto> && tide init && OPENCODE_CONFIG_DIR=\"$CONFIG_DIR\" opencode"
+  say "  cd <projeto> && tide opencode"
 fi
 say ""
 say "MCP seguro instalado em:"
