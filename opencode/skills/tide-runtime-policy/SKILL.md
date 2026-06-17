@@ -19,6 +19,9 @@ Classifique comandos antes de rodar:
 - Use teste escopado antes de suite completa.
 - Toda validação executável deve preferir `tide run` ou `tide project run`.
 - Quando souber o comando escopado, passe ao verifier o comando exato já envelopado com `tide run` e timeout.
+- Não invente símbolo, atributo, função ou contrato de API no comando de validação.
+- Se a API exata não estiver confirmada, use comando import-only, comando recomendado pelo runner, teste existente, ou inspeção mínima antes de validar.
+- Se uma validação falhar por comando incorreto ou contrato de teste incerto, marque como inconclusiva, não como bug confirmado.
 - Prefira `python3` a `python` quando não houver comando catalogado.
 - Não troque teste escopado seguro por suíte maior apenas porque existe comando catalogado.
 - Todo comando slow deve ter timeout.
