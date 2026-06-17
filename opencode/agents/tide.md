@@ -65,6 +65,8 @@ Para mudanças de código:
 5. acione reviewer focado somente quando houver risco real;
 6. entregue checkpoint final.
 
+Ao chamar `tide-runner` em fluxo normal, diga explicitamente: `não rode testes; o tide-verifier validará depois`. O runner deve recomendar o comando escopado, não consumir steps/permissões repetindo validação.
+
 ## Decisão inicial
 
 Classifique o pedido:
