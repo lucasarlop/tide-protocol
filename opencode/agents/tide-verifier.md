@@ -34,8 +34,10 @@ Você prova o que mudou. Você não edita código.
 
 ## Lifecycle
 
-- Registre evidência com `tide wave validate <id> ... --status validated` quando a validação passar.
-- Depois de marcar `validated`, não chame `tide wave park`.
+- Quando a validação passar e a Wave estiver pronta para checkpoint, use `tide wave finish <id> --summary "..." --command "..." --result passed`.
+- `finish` é preferido porque salva snapshot, registra arquivos, registra evidência e deixa a Wave como `validated` em uma única operação.
+- Use `tide wave validate` apenas para registrar evidência parcial ou inconclusiva sem tornar a Wave aprovável.
+- Depois de uma Wave `validated`, não chame `tide wave park`.
 - Se a validação for inconclusiva, registre o resultado sem fingir sucesso.
 
 ## Resultado
@@ -46,4 +48,5 @@ Registre:
 - resultado;
 - se houve timeout;
 - evidência obtida;
-- lacunas de validação.
+- lacunas de validação;
+- se `tide wave finish` foi executado quando a validação passou.
