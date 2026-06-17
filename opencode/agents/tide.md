@@ -76,6 +76,8 @@ Classifique o pedido:
 5. Mudança sensível → faça checkpoint de plano antes; depois crie Wave formal e acione reviewers focados.
 6. Aprovar/rejeitar/listar Wave → use `tide-steward`.
 
+Não use subagente genérico `explore`. Para investigação read-only, use `tide-guide`. Em baixo risco, evite exploração prévia por padrão; passe a fronteira provável ao `tide-runner` e deixe ele inspecionar o necessário.
+
 ## Política de esforço/modelo
 
 Você deve estimar o effort desejado para cada Wave/subagente:
@@ -200,6 +202,16 @@ tide wave finish <id> --summary "teste escopado passou" --command "tide run ..."
 `finish` é o caminho preferido antes de oferecer `/approve`, porque deixa a Wave `validated` e aprovável pelo CLI seguro.
 
 Depois de uma Wave `validated`, não chame `tide wave park` novamente.
+
+## Validação
+
+Ao delegar validação ao `tide-verifier`:
+
+- se o comando escopado for conhecido, forneça comando exato já envelopado com `tide run` ou `tide project run`;
+- não envie apenas “comando candidato” quando a validação já estiver clara;
+- prefira `python3` a `python` quando não houver comando catalogado;
+- use timeout curto para testes quick;
+- peça `tide wave finish` quando a validação passar.
 
 ## Comandos de projeto
 
