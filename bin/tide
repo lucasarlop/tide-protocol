@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import hashlib
 import json
 import os
@@ -10,7 +11,6 @@ import re
 import shlex
 import subprocess
 import sys
-import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -20,6 +20,15 @@ DEFAULT_VERSION = "0.5.0"
 WAVES_DIR = Path(".opencode/waves")
 VALID_STATUSES = {"running", "parked", "validated", "committed", "rejected", "failed"}
 SENSITIVE_SAFETY = {"mutating", "dangerous", "production", "ssh", "database", "db", "destructive"}
+
+
+class TideError(RuntimeError):
+    pass
+
+
+def die(message: str, code: int = 1) -> None:
+    print(f"erro: {message}", file=sys.stderr)
+    raise SystemExit(code)
 
 
 def load_cli_version() -> str:
@@ -33,15 +42,6 @@ def load_cli_version() -> str:
 
 
 VERSION = load_cli_version()
-
-
-class TideError(RuntimeError):
-    pass
-
-
-def die(message: str, code: int = 1) -> None:
-    print(f"erro: {message}", file=sys.stderr)
-    raise SystemExit(code)
 
 
 def run_git(args: list[str], *, check: bool = True, capture: bool = True, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -77,6 +77,18 @@ def now_iso() -> str:
 
 def sha256_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def write_json(path: Path, data: Any) -> None:
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def read_json(path: Path, default: Any | None = None) -> Any:
+    if not path.exists():
+        if default is not None:
+            return default
+        raise TideError(f"arquivo não encontrado: {path}")
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def ensure_waves_dir() -> None:
@@ -115,18 +127,6 @@ def registry_path() -> Path:
     return repo_root() / WAVES_DIR / "registry.json"
 
 
-def write_json(path: Path, data: Any) -> None:
-    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-
-def read_json(path: Path, default: Any | None = None) -> Any:
-    if not path.exists():
-        if default is not None:
-            return default
-        raise TideError(f"arquivo não encontrado: {path}")
-    return json.loads(path.read_text(encoding="utf-8"))
-
-
 def require_wave_id(wave_id: str) -> str:
     if not re.fullmatch(r"TIDE-\d{4}", wave_id):
         die(f"ID de Wave inválido: {wave_id}; use formato TIDE-0001")
@@ -140,42 +140,10 @@ def read_wave(wave_id: str) -> dict[str, Any]:
     return read_json(wave_json_path(wave_id), default=None)
 
 
-def update_registry(wave: dict[str, Any]) -> None:
-    ensure_waves_dir()
-    path = registry_path()
-    registry = read_json(path, {"version": 1, "waves": []})
-    waves = registry.setdefault("waves", [])
-    compact = {
-        "id": wave["id"],
-        "title": wave.get("title", ""),
-        "status": wave.get("status", "running"),
-        "type": wave.get("type", "code"),
-        "risk": wave.get("risk", "unknown"),
-        "created_at": wave.get("created_at"),
-        "updated_at": wave.get("updated_at"),
-    }
-    for i, item in enumerate(waves):
-        if item.get("id") == wave["id"]:
-            waves[i] = compact
-            break
-    else:
-        waves.append(compact)
-    waves.sort(key=lambda item: item["id"])
-    write_json(path, registry)
-
-
-def write_wave_files(wave: dict[str, Any]) -> None:
-    directory = wave_dir(wave["id"])
-    directory.mkdir(parents=True, exist_ok=True)
-    wave["updated_at"] = now_iso()
-    write_json(directory / "wave.json", wave)
-    (directory / "wave.md").write_text(render_wave_md(wave), encoding="utf-8")
-    write_json(directory / "files.json", wave.get("files", []))
-    write_json(directory / "validations.json", wave.get("validations", []))
-    patch_path = directory / "wave.diff"
-    if not patch_path.exists():
-        patch_path.write_text("", encoding="utf-8")
-    update_registry(wave)
+def format_md_list(values: list[str], fallback: str) -> str:
+    if not values:
+        return fallback
+    return "\n".join(f"- `{v}`" if "/" in v or "*" in v else f"- {v}" for v in values)
 
 
 def render_wave_md(wave: dict[str, Any]) -> str:
@@ -235,10 +203,42 @@ Máximo de arquivos: {wave.get('max_files', 'não definido')}
 """
 
 
-def format_md_list(values: list[str], fallback: str) -> str:
-    if not values:
-        return fallback
-    return "\n".join(f"- `{v}`" if "/" in v or "*" in v else f"- {v}" for v in values)
+def update_registry(wave: dict[str, Any]) -> None:
+    ensure_waves_dir()
+    path = registry_path()
+    registry = read_json(path, {"version": 1, "waves": []})
+    waves = registry.setdefault("waves", [])
+    compact = {
+        "id": wave["id"],
+        "title": wave.get("title", ""),
+        "status": wave.get("status", "running"),
+        "type": wave.get("type", "code"),
+        "risk": wave.get("risk", "unknown"),
+        "created_at": wave.get("created_at"),
+        "updated_at": wave.get("updated_at"),
+    }
+    for i, item in enumerate(waves):
+        if item.get("id") == wave["id"]:
+            waves[i] = compact
+            break
+    else:
+        waves.append(compact)
+    waves.sort(key=lambda item: item["id"])
+    write_json(path, registry)
+
+
+def write_wave_files(wave: dict[str, Any]) -> None:
+    directory = wave_dir(wave["id"])
+    directory.mkdir(parents=True, exist_ok=True)
+    wave["updated_at"] = now_iso()
+    write_json(directory / "wave.json", wave)
+    (directory / "wave.md").write_text(render_wave_md(wave), encoding="utf-8")
+    write_json(directory / "files.json", wave.get("files", []))
+    write_json(directory / "validations.json", wave.get("validations", []))
+    patch_path = directory / "wave.diff"
+    if not patch_path.exists():
+        patch_path.write_text("", encoding="utf-8")
+    update_registry(wave)
 
 
 def next_wave_id() -> str:
@@ -268,19 +268,38 @@ def is_tracked(path: str) -> bool:
     return run_git(["ls-files", "--error-unmatch", path], check=False).returncode == 0
 
 
+def normalize_repo_path(path: str) -> str:
+    root = repo_root().resolve()
+    candidate = Path(path)
+    if candidate.is_absolute():
+        try:
+            return candidate.resolve().relative_to(root).as_posix()
+        except ValueError:
+            die(f"arquivo fora do repositório: {path}")
+    normalized = Path(os.path.normpath(path)).as_posix()
+    if normalized in {"", "."} or normalized.startswith("../") or normalized == "..":
+        die(f"caminho inválido para fronteira: {path}")
+    return normalized[2:] if normalized.startswith("./") else normalized
+
+
+def normalize_paths(paths: Iterable[str]) -> list[str]:
+    return sorted(set(normalize_repo_path(p) for p in paths if p))
+
+
+def path_matches_spec(path: str, spec: str) -> bool:
+    spec = normalize_repo_path(spec)
+    if spec.endswith("/"):
+        return path.startswith(spec)
+    if any(ch in spec for ch in "*?[]"):
+        return fnmatch.fnmatch(path, spec)
+    return path == spec or path.startswith(spec.rstrip("/") + "/")
+
+
 def no_index_patch_for_untracked(path: str) -> str:
     if not (repo_root() / path).exists():
         return ""
     result = subprocess.run(["git", "diff", "--no-index", "--binary", "--", "/dev/null", path], text=True, capture_output=True)
     return result.stdout or ""
-
-
-def build_patch() -> str:
-    patch = run_git(["diff", "--binary", "HEAD"]).stdout
-    for path in run_git(["ls-files", "--others", "--exclude-standard"]).stdout.splitlines():
-        if path:
-            patch += no_index_patch_for_untracked(path)
-    return patch
 
 
 def build_patch_for_paths(paths: list[str]) -> str:
@@ -294,16 +313,6 @@ def build_patch_for_paths(paths: list[str]) -> str:
     for path in sorted(untracked_paths):
         patch += no_index_patch_for_untracked(path)
     return patch
-
-
-def set_wave_status(wave_id: str, status: str, note: str | None = None) -> None:
-    if status not in VALID_STATUSES:
-        die(f"status inválido: {status}. Válidos: {', '.join(sorted(VALID_STATUSES))}")
-    wave = read_wave(wave_id)
-    wave["status"] = status
-    if note:
-        wave["result"] = note
-    write_wave_files(wave)
 
 
 def enforce_wave_budget(wave: dict[str, Any], files: list[str], *, allow_overbudget: bool = False) -> None:
@@ -321,19 +330,79 @@ def enforce_wave_budget(wave: dict[str, Any], files: list[str], *, allow_overbud
         )
 
 
-def snapshot_wave(wave_id: str, *, status: str = "parked", note: str | None = None, allow_overbudget: bool = False) -> None:
+def resolve_snapshot_boundary(
+    wave: dict[str, Any],
+    *,
+    explicit_files: list[str] | None = None,
+    allow_outside_boundary: bool = False,
+) -> tuple[list[str], list[str], str, list[str]]:
+    dirty_files = tracked_and_untracked_files()
+    explicit = normalize_paths(explicit_files or [])
+    allowed = [str(item) for item in wave.get("allowed", []) if str(item).strip()]
+
+    if explicit:
+        boundary_source = "explicit-files"
+        boundary_specs = explicit
+        selected = [path for path in dirty_files if path in set(explicit)]
+    elif allowed:
+        boundary_source = "wave.allowed"
+        boundary_specs = allowed
+        selected = [path for path in dirty_files if any(path_matches_spec(path, spec) for spec in allowed)]
+    else:
+        boundary_source = "working-tree"
+        boundary_specs = []
+        if dirty_files and wave.get("baseline") == "stacked" and not allow_outside_boundary:
+            die(
+                f"{wave['id']} foi criada com working tree sujo e não tem fronteira explícita. "
+                "Use `tide wave finish --file <path>` ou crie a Wave com --allow para evitar snapshot misturado."
+            )
+        selected = dirty_files
+
+    outside = sorted(path for path in dirty_files if path not in set(selected))
+    if outside and not allow_outside_boundary:
+        lines = [
+            f"{wave['id']} tem arquivos modificados fora da fronteira; finish bloqueado para evitar snapshot misturado.",
+            "Fora da fronteira:",
+            *[f"- {path}" for path in outside],
+            "Use --file/--allow para restringir a Wave, limpe os arquivos fora da fronteira, ou use --allow-outside-boundary após checkpoint explícito.",
+        ]
+        die("\n".join(lines))
+
+    if dirty_files and not selected:
+        die(f"{wave['id']} não tem arquivos modificados dentro da fronteira informada")
+
+    return sorted(selected), outside, boundary_source, boundary_specs
+
+
+def snapshot_wave(
+    wave_id: str,
+    *,
+    status: str = "parked",
+    note: str | None = None,
+    allow_overbudget: bool = False,
+    files: list[str] | None = None,
+    allow_outside_boundary: bool = False,
+) -> None:
     wave = read_wave(wave_id)
-    files = tracked_and_untracked_files()
-    enforce_wave_budget(wave, files, allow_overbudget=allow_overbudget)
-    patch = build_patch()
+    selected, outside, boundary_source, boundary_specs = resolve_snapshot_boundary(
+        wave,
+        explicit_files=files,
+        allow_outside_boundary=allow_outside_boundary,
+    )
+    enforce_wave_budget(wave, selected, allow_overbudget=allow_overbudget)
+    patch = build_patch_for_paths(selected)
     directory = wave_dir(wave_id)
     (directory / "wave.diff").write_text(patch, encoding="utf-8")
-    write_json(directory / "files.json", files)
-    wave["files"] = files
+    write_json(directory / "files.json", selected)
+    wave["files"] = selected
     wave["status"] = status
     wave["snapshot_at"] = now_iso()
     wave["snapshot_sha256"] = sha256_text(patch)
-    wave["snapshot_file_count"] = len(files)
+    wave["snapshot_file_count"] = len(selected)
+    wave["boundary_checked_at"] = now_iso()
+    wave["boundary_source"] = boundary_source
+    wave["boundary_files"] = boundary_specs or selected
+    wave["outside_dirty_files"] = outside
     if note:
         wave["result"] = note
     write_wave_files(wave)
@@ -409,6 +478,16 @@ def append_validation(wave_id: str, *, summary: str, command: str | None, result
     wave.setdefault("validations", []).append(validation)
     if status:
         wave["status"] = status
+    write_wave_files(wave)
+
+
+def set_wave_status(wave_id: str, status: str, note: str | None = None) -> None:
+    if status not in VALID_STATUSES:
+        die(f"status inválido: {status}. Válidos: {', '.join(sorted(VALID_STATUSES))}")
+    wave = read_wave(wave_id)
+    wave["status"] = status
+    if note:
+        wave["result"] = note
     write_wave_files(wave)
 
 
@@ -562,17 +641,38 @@ def cmd_wave_park(args: argparse.Namespace) -> None:
     wave = read_wave(args.id)
     if wave.get("status") == "validated" and not args.force:
         die(f"{args.id} já está validated; não chame park depois de validated. Use --force apenas após checkpoint explícito")
-    snapshot_wave(args.id, status="parked", note=args.note, allow_overbudget=args.allow_overbudget)
+    snapshot_wave(
+        args.id,
+        status="parked",
+        note=args.note,
+        allow_overbudget=args.allow_overbudget,
+        files=args.file,
+        allow_outside_boundary=args.allow_outside_boundary,
+    )
     print(f"ok: {args.id} estacionada")
 
 
 def cmd_wave_snapshot(args: argparse.Namespace) -> None:
-    snapshot_wave(args.id, status=args.status, note=args.note, allow_overbudget=args.allow_overbudget)
+    snapshot_wave(
+        args.id,
+        status=args.status,
+        note=args.note,
+        allow_overbudget=args.allow_overbudget,
+        files=args.file,
+        allow_outside_boundary=args.allow_outside_boundary,
+    )
     print(f"ok: snapshot salvo para {args.id}")
 
 
 def cmd_wave_finish(args: argparse.Namespace) -> None:
-    snapshot_wave(args.id, status="validated", note=args.note or args.summary, allow_overbudget=args.allow_overbudget)
+    snapshot_wave(
+        args.id,
+        status="validated",
+        note=args.note or args.summary,
+        allow_overbudget=args.allow_overbudget,
+        files=args.file,
+        allow_outside_boundary=args.allow_outside_boundary,
+    )
     append_validation(args.id, summary=args.summary, command=args.command, result=args.result, status="validated")
     print(f"ok: {args.id} finalizada como validated")
 
@@ -864,6 +964,13 @@ def add_wave_create_parser(subparsers: argparse._SubParsersAction) -> None:
     wc.set_defaults(func=cmd_wave_create)
 
 
+def add_snapshot_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("id")
+    parser.add_argument("--file", action="append", help="arquivo da fronteira da Wave; repetível")
+    parser.add_argument("--allow-overbudget", action="store_true")
+    parser.add_argument("--allow-outside-boundary", action="store_true")
+
+
 def add_approve_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("ids", nargs="+")
     parser.add_argument("-m", "--message")
@@ -895,10 +1002,9 @@ def build_parser() -> argparse.ArgumentParser:
     reject.set_defaults(func=lambda args: reject_waves(args.ids))
 
     park = sub.add_parser("park")
-    park.add_argument("id")
+    add_snapshot_args(park)
     park.add_argument("--note")
     park.add_argument("--force", action="store_true")
-    park.add_argument("--allow-overbudget", action="store_true")
     park.set_defaults(func=cmd_wave_park)
 
     create_wave = sub.add_parser("create-wave")
@@ -909,9 +1015,14 @@ def build_parser() -> argparse.ArgumentParser:
     )))
 
     snapshot = sub.add_parser("snapshot")
-    snapshot.add_argument("id")
-    snapshot.add_argument("--allow-overbudget", action="store_true")
-    snapshot.set_defaults(func=lambda args: snapshot_wave(args.id, status="parked", allow_overbudget=args.allow_overbudget))
+    add_snapshot_args(snapshot)
+    snapshot.set_defaults(func=lambda args: snapshot_wave(
+        args.id,
+        status="parked",
+        allow_overbudget=args.allow_overbudget,
+        files=args.file,
+        allow_outside_boundary=args.allow_outside_boundary,
+    ))
 
     wave = sub.add_parser("wave")
     wave_sub = wave.add_subparsers(dest="wave_command")
@@ -927,26 +1038,23 @@ def build_parser() -> argparse.ArgumentParser:
     ws.set_defaults(func=cmd_wave_show)
 
     wp = wave_sub.add_parser("park")
-    wp.add_argument("id")
+    add_snapshot_args(wp)
     wp.add_argument("--note")
     wp.add_argument("--force", action="store_true")
-    wp.add_argument("--allow-overbudget", action="store_true")
     wp.set_defaults(func=cmd_wave_park)
 
     wss = wave_sub.add_parser("snapshot")
-    wss.add_argument("id")
+    add_snapshot_args(wss)
     wss.add_argument("--status", default="parked", choices=sorted(VALID_STATUSES))
     wss.add_argument("--note")
-    wss.add_argument("--allow-overbudget", action="store_true")
     wss.set_defaults(func=cmd_wave_snapshot)
 
     wfini = wave_sub.add_parser("finish")
-    wfini.add_argument("id")
+    add_snapshot_args(wfini)
     wfini.add_argument("--summary", required=True)
     wfini.add_argument("--command")
     wfini.add_argument("--result", default="passed")
     wfini.add_argument("--note")
-    wfini.add_argument("--allow-overbudget", action="store_true")
     wfini.set_defaults(func=cmd_wave_finish)
 
     wst = wave_sub.add_parser("status")
