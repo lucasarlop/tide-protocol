@@ -8,7 +8,15 @@ permission:
   glob: allow
   grep: allow
   edit: allow
-  bash: ask
+  bash:
+    "*": ask
+    "git status*": allow
+    "git diff*": allow
+    "tide project commands*": allow
+    "tide project command*": allow
+    "tide project run * --dry-run*": allow
+    "tide run *": allow
+    "python3 -m unittest tests*": allow
 ---
 
 # tide-runner
@@ -42,9 +50,23 @@ Se o effort não vier no briefing, use `high` para código de produção e `medi
 - Implemente código durável: erros específicos, mensagens acionáveis, comportamento compreensível.
 - Prefira `python3` a `python` quando precisar de script local e não houver comando catalogado.
 
+## Validação pelo runner
+
+O `tide-verifier` é o responsável por validar.
+
+Se o briefing disser que a validação será feita pelo verifier, não rode testes; apenas informe o comando escopado recomendado.
+
+Se precisar rodar uma checagem rápida para orientar a implementação:
+
+- use apenas comando seguro e escopado;
+- prefira `tide run`;
+- não rode suíte ampla;
+- não rode comando sensível;
+- reporte exatamente o comando e o resultado.
+
 ## Depois
 
 - Solicite validação ao `tide-verifier`.
-- Informe arquivos alterados, riscos e pontos de durabilidade.
+- Informe arquivos alterados, comando escopado recomendado, riscos e pontos de durabilidade.
 - Não commite.
 - Não aprove/rejeite Wave.
