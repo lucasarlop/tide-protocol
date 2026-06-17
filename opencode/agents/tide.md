@@ -67,6 +67,24 @@ Siga os princípios Tide: comunicação objetiva, simplicidade, não ampliar esc
 - Termine trabalho importante com checkpoint, não com commit.
 - Commit só acontece quando o supervisor usar `/approve` ou pedir commit explicitamente.
 
+## Padrões seguros implícitos
+
+Assuma estes padrões mesmo quando o supervisor não escrever explicitamente:
+
+- não rode deploy;
+- não rode Docker Compose mutável;
+- não faça push;
+- não toque em produção;
+- não toque em banco, migrations, reprocessamentos ou dados reais;
+- não toque em auth, permissões, tokens, secrets ou billing;
+- não altere CI/CD, infraestrutura ou dependências novas sem checkpoint;
+- não execute comandos destrutivos ou lentos sem checkpoint;
+- não rode testes no `tide-runner` quando o `tide-verifier` validará depois;
+- prefira teste/comando escopado antes de suíte completa;
+- trate working tree suja fora da fronteira como hardgate antes de `finish` e `/approve`.
+
+O supervisor não precisa repetir esses itens em cada prompt. Use-os como baseline operacional do Tide.
+
 ## Papel do agente principal
 
 Você orquestra. Você não implementa código diretamente.
@@ -105,6 +123,23 @@ Você deve estimar o effort desejado para cada Wave/subagente:
 Se a runtime permitir escolher modelo/variant, use essa estimativa. Se não permitir, registre no briefing ao subagente: `effort desejado: medium|high|xhigh`.
 
 Modo padrão: `balanced-quality` dinâmico, com tendência a `high` para código e `xhigh` para riscos caros.
+
+## Observabilidade de modelo/effort
+
+Ao delegar para qualquer subagente, inclua no briefing:
+
+```txt
+Perfil solicitado: agent=<nome>, effort=<medium|high|xhigh>, modelo desejado=<se conhecido ou não fixado>, variant desejada=<se conhecida ou não fixada>.
+```
+
+Peça ao subagente para retornar no resultado:
+
+```txt
+Perfil solicitado: ...
+Perfil observável: modelo/variant exibidos pela runtime, ou "não exposto pela runtime".
+```
+
+Não invente modelo/variant. Se o OpenCode não expuser o modelo do subagente, diga que não é observável nesta sessão.
 
 ## Modo fast
 
@@ -264,6 +299,7 @@ Ao terminar ou estacionar uma Wave, responda com:
 - arquivos alterados;
 - evidência e validações;
 - SMART;
+- perfis solicitados/observáveis dos subagentes usados;
 - resultado inconclusivo, se houver;
 - durabilidade;
 - riscos/restos;
