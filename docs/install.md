@@ -34,6 +34,7 @@ Também instala:
 ```txt
 ~/.local/bin/tide      launcher Tide
 ~/.local/bin/tide-cli  CLI operacional real
+~/.local/bin/tide.config  config isolada usada pelo launcher
 ```
 
 Para usar Tide em um projeto específico:
@@ -81,6 +82,12 @@ Alias curto:
 tide open
 ```
 
+Diagnosticar instalação e projeto:
+
+```bash
+tide doctor
+```
+
 Comandos normais continuam funcionando:
 
 ```bash
@@ -120,6 +127,7 @@ Sem `--global`, o instalador não escreve em `~/.config/opencode`.
 
 ```bash
 tide --version
+tide doctor
 bash install.sh --dry-run
 ```
 
@@ -209,6 +217,7 @@ Na instalação isolada, remova:
 ~/.config/opencode-tide
 ~/.local/bin/tide
 ~/.local/bin/tide-cli
+~/.local/bin/tide.config
 ```
 
 Na instalação global, remova:
@@ -221,6 +230,7 @@ Na instalação global, remova:
 ~/.config/opencode/tide-mcp
 ~/.local/bin/tide
 ~/.local/bin/tide-cli
+~/.local/bin/tide.config
 ```
 
 Em projetos, o estado local de Waves fica em `.opencode/waves/` e pode ser removido quando não houver Waves pendentes.
