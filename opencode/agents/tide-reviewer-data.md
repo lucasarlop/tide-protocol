@@ -1,6 +1,7 @@
 ---
 description: Revisor Tide para dados, schemas, queries e rotinas de processamento.
 mode: subagent
+steps: 14
 permission:
   read: allow
   list: allow
