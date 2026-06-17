@@ -36,22 +36,77 @@ class TideCliTests(unittest.TestCase):
     def tide(self, args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
         return self.cmd(["python3", str(TIDE), *args], check=check)
 
-    def test_wave_create_park_approve(self) -> None:
+    def test_wave_create_park_validate_approve(self) -> None:
         self.tide(["init"])
         wave_id = self.tide(["wave", "create", "--title", "Add file", "--risk", "low"]).stdout.strip()
 
         (self.root / "foo.txt").write_text("x\n", encoding="utf-8")
         self.tide(["wave", "park", wave_id])
+        self.tide([
+            "wave", "validate", wave_id,
+            "--summary", "unit validation passed",
+            "--command", "tide run -- echo ok",
+            "--result", "passed",
+            "--status", "validated",
+        ])
         listing = self.tide(["wave", "list"]).stdout
 
         self.assertIn(wave_id, listing)
-        self.assertIn("parked", listing)
+        self.assertIn("validated", listing)
 
         approved = self.tide(["approve", wave_id]).stdout
         self.assertIn("commit criado", approved)
+        self.assertIn("Working tree: limpo", approved)
 
         log = self.cmd(["git", "log", "-1", "--pretty=%B"]).stdout
         self.assertIn(wave_id, log)
+
+    def test_approve_requires_validated_by_default(self) -> None:
+        self.tide(["init"])
+        wave_id = self.tide(["wave", "create", "--title", "Add file", "--risk", "low"]).stdout.strip()
+        (self.root / "foo.txt").write_text("x\n", encoding="utf-8")
+        self.tide(["wave", "park", wave_id])
+
+        result = self.tide(["approve", wave_id], check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("validated", result.stderr)
+
+    def test_approve_blocks_preexisting_staged_changes(self) -> None:
+        self.tide(["init"])
+        wave_id = self.tide(["wave", "create", "--title", "Add file", "--risk", "low"]).stdout.strip()
+        (self.root / "foo.txt").write_text("x\n", encoding="utf-8")
+        self.tide(["wave", "finish", wave_id, "--summary", "validated", "--command", "tide run -- echo ok"])
+
+        (self.root / "outside.txt").write_text("outside\n", encoding="utf-8")
+        self.cmd(["git", "add", "outside.txt"])
+        result = self.tide(["approve", wave_id], check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("staged", result.stderr)
+
+    def test_approve_blocks_snapshot_drift(self) -> None:
+        self.tide(["init"])
+        wave_id = self.tide(["wave", "create", "--title", "Add file", "--risk", "low"]).stdout.strip()
+        (self.root / "foo.txt").write_text("x\n", encoding="utf-8")
+        self.tide(["wave", "finish", wave_id, "--summary", "validated", "--command", "tide run -- echo ok"])
+
+        (self.root / "foo.txt").write_text("changed after snapshot\n", encoding="utf-8")
+        result = self.tide(["approve", wave_id], check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("divergiu", result.stderr)
+
+    def test_park_after_validated_requires_force(self) -> None:
+        self.tide(["init"])
+        wave_id = self.tide(["wave", "create", "--title", "Add file", "--risk", "low"]).stdout.strip()
+        (self.root / "foo.txt").write_text("x\n", encoding="utf-8")
+        self.tide(["wave", "finish", wave_id, "--summary", "validated", "--command", "tide run -- echo ok"])
+
+        result = self.tide(["wave", "park", wave_id], check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("não chame park depois de validated", result.stderr)
 
     def test_wave_reject_reverts_patch(self) -> None:
         self.tide(["init"])
@@ -86,6 +141,16 @@ class TideCliTests(unittest.TestCase):
 
         run = self.tide(["project", "run", "echo_case", "--arg", "case_id=123"]).stdout
         self.assertIn("123", run)
+
+    def test_project_catalog_in_opencode_tide_dir(self) -> None:
+        catalog_dir = self.root / ".opencode" / "tide"
+        catalog_dir.mkdir(parents=True)
+        catalog = {"commands": {"hello": {"description": "Hello", "command": "echo hello", "safety": "read"}}}
+        (catalog_dir / "commands.json").write_text(json.dumps(catalog), encoding="utf-8")
+
+        commands = self.tide(["project", "commands"]).stdout
+
+        self.assertIn("hello", commands)
 
     def test_sensitive_project_run_requires_yes(self) -> None:
         catalog = {
