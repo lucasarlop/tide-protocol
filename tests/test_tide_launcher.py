@@ -44,14 +44,7 @@ class TideLauncherTests(unittest.TestCase):
             f"--bin-dir={self.bin}",
         ], cwd=ROOT)
 
-    def test_launcher_delegates_regular_tide_commands(self) -> None:
-        self.install()
-        tide = self.bin / "tide"
-        result = self.cmd([str(tide), "--version"], cwd=self.repo)
-        self.assertEqual(result.stdout.strip(), "0.5.0")
-
-    def test_launcher_opencode_uses_isolated_config_and_runs_init(self) -> None:
-        self.install()
+    def env_with_fake_opencode(self) -> dict[str, str]:
         fake_opencode = self.bin / "opencode"
         marker = self.root / "opencode-env.txt"
         fake_opencode.write_text(
@@ -60,14 +53,37 @@ class TideLauncherTests(unittest.TestCase):
             encoding="utf-8",
         )
         fake_opencode.chmod(0o755)
-
         env = os.environ.copy()
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
+        return env
+
+    def test_launcher_delegates_regular_tide_commands(self) -> None:
+        self.install()
+        tide = self.bin / "tide"
+        result = self.cmd([str(tide), "--version"], cwd=self.repo)
+        self.assertEqual(result.stdout.strip(), "0.5.0")
+
+    def test_launcher_opencode_uses_isolated_config_and_runs_init(self) -> None:
+        self.install()
+        env = self.env_with_fake_opencode()
+        marker = self.root / "opencode-env.txt"
         tide = self.bin / "tide"
         self.cmd([str(tide), "opencode"], cwd=self.repo, env=env)
 
         self.assertEqual(marker.read_text(encoding="utf-8"), str(self.config))
         self.assertTrue((self.repo / ".opencode" / "waves" / "registry.json").exists())
+
+    def test_launcher_doctor_reports_ok_when_installed(self) -> None:
+        self.install()
+        env = self.env_with_fake_opencode()
+        tide = self.bin / "tide"
+        self.cmd([str(tide), "init"], cwd=self.repo)
+
+        result = self.cmd([str(tide), "doctor"], cwd=self.repo, env=env)
+
+        self.assertIn("Tide Doctor", result.stdout)
+        self.assertIn("Doctor: ok", result.stdout)
+        self.assertIn(str(self.config), result.stdout)
 
 
 if __name__ == "__main__":
