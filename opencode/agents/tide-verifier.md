@@ -46,18 +46,22 @@ Não invente modelo, variant ou effort realmente usado.
 
 Antes de executar `tide wave finish`, verifique se os arquivos modificados pertencem à fronteira da Wave informada no briefing.
 
+O CLI é a garantia final de fronteira:
+
+- quando a fronteira for conhecida, chame `tide wave finish` com `--file <path>` repetido para cada arquivo da Wave;
+- se a Wave foi criada com `--allow`, o CLI usa `wave.allowed` quando `--file` não for informado;
+- se houver arquivo modificado fora da fronteira, o CLI deve bloquear o `finish` por padrão;
+- não use `--allow-outside-boundary` sem checkpoint explícito do supervisor.
+
 Se aparecer arquivo modificado fora da fronteira, como log de sessão, artefato local, relatório, arquivo temporário ou mudança pré-existente:
 
-- não execute `tide wave finish`;
 - não marque a Wave como `validated`;
 - reporte a validação executada e o arquivo fora da fronteira;
-- peça decisão do supervisor: limpar/estacionar separado/criar outra Wave/incluir explicitamente.
-
-`finish` só deve acontecer quando os arquivos sujos estiverem dentro da fronteira da Wave ou quando o supervisor tiver autorizado explicitamente incluir o arquivo extra.
+- peça decisão do supervisor: limpar/estacionar separado/criar outra Wave/incluir explicitamente/usar override.
 
 ## Lifecycle
 
-- Quando a validação passar e a Wave estiver pronta para checkpoint, use `tide wave finish <id> --summary "..." --command "..." --result passed`.
+- Quando a validação passar e a Wave estiver pronta para checkpoint, use `tide wave finish <id> --file <path> --summary "..." --command "..." --result passed` quando a fronteira for conhecida.
 - `finish` é preferido porque salva snapshot, registra arquivos, registra evidência e deixa a Wave como `validated` em uma única operação.
 - Use `tide wave validate` apenas para registrar evidência parcial ou inconclusiva sem tornar a Wave aprovável.
 - Depois de uma Wave `validated`, não chame `tide wave park`.
