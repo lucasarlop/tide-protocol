@@ -9,13 +9,34 @@ compatibility: opencode
 
 Use somente quando o supervisor pedir `/approve <wave-id>` ou autorização equivalente.
 
-## Regras
+## Regra principal
+
+Use o CLI seguro:
+
+```bash
+tide approve <wave-id...>
+```
+
+O CLI é responsável por:
+
+- exigir Wave `validated` por padrão;
+- exigir índice Git limpo antes do approve;
+- checar snapshot contra diff atual;
+- bloquear overlap sem decisão explícita;
+- stagear apenas arquivos registrados na Wave;
+- criar commit com ID da Wave;
+- marcar status `committed`;
+- não fazer push;
+- reportar working tree.
+
+## Regras do agente
+
 - Não faça push.
 - Não edite código durante commit.
-- Stage apenas arquivos registrados na Wave.
-- Inclua o ID da Wave na mensagem.
-- Se mudanças de Waves diferentes estiverem misturadas, pare.
-- Se a Wave não tem snapshot/files.json, peça para estacionar/snapshot antes.
+- Não use `task` para delegar approve.
+- Não faça exploração prévia por rotina.
+- Se o CLI bloquear, explique a mensagem do CLI e pare.
+- Se o CLI concluir, resuma o output do CLI; não rode checagens extras salvo se o output estiver ambíguo.
 
 Mensagem padrão:
 
