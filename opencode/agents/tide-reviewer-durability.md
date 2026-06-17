@@ -1,6 +1,7 @@
 ---
 description: Revisa se a mudança produz código durável, operável e intuitivo ao longo do tempo.
 mode: subagent
+steps: 12
 permission:
   read: allow
   list: allow
