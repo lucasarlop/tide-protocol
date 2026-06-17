@@ -12,18 +12,36 @@ import subprocess
 import sys
 from pathlib import Path
 
-DEFAULT_CONFIG_DIR = Path.home() / ".config" / "opencode-tide"
+FALLBACK_CONFIG_DIR = Path.home() / ".config" / "opencode-tide"
+
+
+def launcher_dir() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def default_config_dir() -> str:
+    explicit = os.environ.get("TIDE_CONFIG_DIR")
+    if explicit:
+        return explicit
+    config_file = launcher_dir() / "tide.config"
+    try:
+        if config_file.exists():
+            configured = config_file.read_text(encoding="utf-8").strip()
+            if configured:
+                return configured
+    except OSError:
+        pass
+    return str(FALLBACK_CONFIG_DIR)
 
 
 def find_tide_cli() -> str:
-    here = Path(__file__).resolve()
-    sibling = here.with_name("tide-cli")
+    sibling = launcher_dir() / "tide-cli"
     if sibling.exists():
         return str(sibling)
     found = shutil.which("tide-cli")
     if found:
         return found
-    return str(here.with_name("tide"))
+    return str(launcher_dir() / "tide")
 
 
 def run_tide_cli(args: list[str]) -> int:
@@ -31,7 +49,7 @@ def run_tide_cli(args: list[str]) -> int:
 
 
 def run_opencode(args: list[str]) -> int:
-    config_dir = os.environ.get("TIDE_CONFIG_DIR") or str(DEFAULT_CONFIG_DIR)
+    config_dir = default_config_dir()
     init = True
     forwarded: list[str] = []
     i = 0
