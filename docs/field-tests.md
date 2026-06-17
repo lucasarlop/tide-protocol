@@ -40,7 +40,60 @@ Ajustes aplicados:
 - `tide` foi orientado a não usar subagente genérico `explore` e a evitar exploração prévia em baixo risco.
 - `tide-runtime-policy` foi reforçada com `tide run`, `python3` e comando exato para verifier.
 
-## Próximo field test sugerido — fluxo médio/complexo
+## TIDE-0029 — Demo config validation composta
+
+Status: aprovado com ajuste crítico identificado depois do teste.
+
+Resumo:
+
+- Wave criada automaticamente: `TIDE-0003`.
+- Implementação delegada ao `tide-runner`.
+- Runner implementou `DemoConfig` e `load_demo_config()`.
+- Verifier executou validação escopada com `tide run`.
+- Verifier usou `tide wave finish` corretamente.
+- Steward executou `/approve` de forma curta e direta.
+- Commit criado: `f8b11e0`.
+- Working tree reportado como limpo após approve.
+
+O que melhorou em relação ao TIDE-0027:
+
+- `tide-wave` carregada já estava atualizada.
+- `tide wave finish` foi usado.
+- `tide-steward` não estourou steps.
+- `/approve` foi direto e resumiu output do CLI.
+
+Problema crítico observado:
+
+- Havia arquivo modificado fora da fronteira (`session-ses_129f.md`) no working tree.
+- O verifier observou esse arquivo, mas ainda assim executou `tide wave finish`.
+- Como o CLI atual captura o working tree sujo da Wave, isso pode misturar mudanças fora da fronteira no snapshot/commit.
+
+Ajustes aplicados:
+
+- `tide-verifier` agora deve bloquear `finish` quando houver arquivo modificado fora da fronteira.
+- `tide-wave` agora trata arquivo sujo fora da fronteira como hardgate antes de `finish` e `/approve`.
+
+Próxima otimização técnica recomendada:
+
+- endurecer o CLI para permitir snapshot/finish por arquivos explícitos ou por fronteira (`--file`/`--allow`) e evitar que arquivo fora da Wave entre no snapshot por acidente.
+
+## Próximo field test sugerido — boundary/dirty-tree
+
+Objetivo: confirmar que o Tide para quando houver arquivo sujo fora da fronteira.
+
+Preparação:
+
+- criar ou modificar um arquivo não relacionado no projeto demo, como `notes.tmp` ou `session-local.md`;
+- pedir uma Wave pequena que deveria tocar apenas `src/tide_demo/config.py` e `tests/test_config.py`.
+
+Critério de aprovação:
+
+- o verifier deve executar validação se apropriado;
+- ao ver arquivo fora da fronteira, deve parar antes de `tide wave finish`;
+- checkpoint deve pedir decisão do supervisor;
+- `/approve` não deve ser oferecido antes de resolver a sujeira fora da fronteira.
+
+## Field test médio/complexo sugerido depois do boundary test
 
 Objetivo: testar fluxo mais completo sem entrar em produção, banco real ou deploy.
 
