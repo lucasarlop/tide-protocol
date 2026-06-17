@@ -10,7 +10,20 @@ import sys
 from pathlib import Path
 from typing import Any
 
-VERSION = "1.0.0"
+DEFAULT_VERSION = "0.5.0"
+
+
+def load_version() -> str:
+    for candidate in [Path(__file__).resolve().parents[1] / "VERSION", Path.cwd() / "VERSION"]:
+        try:
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8").strip() or DEFAULT_VERSION
+        except OSError:
+            continue
+    return DEFAULT_VERSION
+
+
+VERSION = load_version()
 
 
 def find_project_root() -> Path:
