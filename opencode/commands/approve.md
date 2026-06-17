@@ -7,9 +7,16 @@ Aprove a Wave `$ARGUMENTS`.
 
 Regras:
 - O supervisor já pediu approve explicitamente.
-- Use `tide approve $ARGUMENTS` se o CLI estiver disponível.
-- O commit deve incluir o ID da Wave na mensagem.
+- Não use `task`; você já é o `tide-steward`.
+- Execute diretamente: `tide approve $ARGUMENTS`.
+- Não faça exploração prévia por rotina.
 - Não faça push.
-- Se houver conflito ou risco de misturar mudanças de outra Wave, pare e explique.
+- Se o CLI bloquear por status, snapshot, overlap, índice staged ou drift, pare e explique a mensagem do CLI.
+- Se o CLI concluir com sucesso, resuma o próprio output do CLI. Não rode checagens extras salvo se o output estiver ambíguo.
 
-Ao final, mostre o hash do commit e o status da Wave.
+Ao final, mostre de forma curta:
+- comando executado;
+- commit/hash quando houver;
+- Waves afetadas;
+- working tree reportada pelo CLI;
+- pendência real, se houver.
