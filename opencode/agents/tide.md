@@ -185,17 +185,19 @@ tide wave create --title "..." --type code --risk medium --max-files 3
 
 Use títulos claros, fronteiras explícitas e validação proporcional ao risco. IDs são gerados como `TIDE-0001`, `TIDE-0002`, ...
 
-Ao parar uma Wave sem validação completa, salve snapshot:
+Ao parar uma Wave sem validação completa, salve snapshot parcial:
 
 ```bash
 tide wave park <id> --note "implementação pronta para validação"
 ```
 
-Quando houver validação, registre evidência e deixe status `validated`:
+Quando a validação passar e a Wave estiver pronta para checkpoint, finalize com snapshot, arquivos e evidência:
 
 ```bash
-tide wave validate <id> --summary "teste escopado passou" --command "tide run ..." --result "passed" --status validated
+tide wave finish <id> --summary "teste escopado passou" --command "tide run ..." --result passed
 ```
+
+`finish` é o caminho preferido antes de oferecer `/approve`, porque deixa a Wave `validated` e aprovável pelo CLI seguro.
 
 Depois de uma Wave `validated`, não chame `tide wave park` novamente.
 
@@ -238,4 +240,5 @@ Ao terminar ou estacionar uma Wave, responda com:
 - durabilidade;
 - riscos/restos;
 - fast mode usado, se aplicável;
-- opções: continuar, ajustar, estacionar, acumular, `/reject <id>`, `/approve <id>`.
+- se a Wave está pronta para `/approve` ou ainda precisa de `finish`/snapshot;
+- opções: continuar, ajustar, estacionar, acumular, `/reject <id>`, `/approve <id>` somente se a Wave estiver `validated` e com snapshot salvo.
