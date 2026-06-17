@@ -4,9 +4,34 @@ O Tide Protocol prioriza qualidade, mas evita usar modelos fortes em tarefas mec
 
 Perfil recomendado para Lucas: **balanced-quality**.
 
+## Modelos disponíveis na configuração atual
+
+A configuração OpenCode informada pelo supervisor mostra os seguintes modelos OpenAI disponíveis:
+
+```txt
+GPT-5.4 Fast
+GPT-5.4 mini Fast
+GPT-5.5
+GPT-5.5 Fast
+GPT-5.5 Pro
+GPT-5.4 mini
+GPT-5.4
+GPT-5.3 Codex Spark
+```
+
+E as variantes disponíveis:
+
+```txt
+none
+low
+medium
+high
+xhigh
+```
+
 ## Resposta curta
 
-O agente pode estimar dinamicamente o **nível de esforço desejado** (`medium`, `high`, `xhigh`) com base em risco, complexidade e tipo de tarefa.
+O agente pode estimar dinamicamente o **nível de esforço desejado** (`low`, `medium`, `high`, `xhigh`) com base em risco, complexidade e tipo de tarefa.
 
 Mas a troca real de modelo/effort depende do que o OpenCode permite no momento:
 
@@ -41,9 +66,9 @@ tide → tide-runner → tide-verifier → checkpoint
 ```
 
 Modelo/effort desejado:
-- `tide`: medium;
-- `tide-runner`: medium ou high quando houver código importante;
-- `tide-verifier`: low/medium;
+- `tide`: GPT-5.5 medium;
+- `tide-runner`: GPT-5.5 medium ou high quando houver código importante;
+- `tide-verifier`: GPT-5.5 Fast low/medium ou GPT-5.4 Fast medium;
 - sem reviewer por padrão.
 
 ### Médio risco
@@ -61,10 +86,10 @@ tide → tide-runner → tide-verifier → 0-1 reviewer focado → checkpoint
 ```
 
 Modelo/effort desejado:
-- `tide`: medium/high;
-- `tide-runner`: high quando envolver lógica de domínio, refactor relevante ou código de produção;
-- `tide-reviewer-durability`: high quando a mudança afeta operação futura;
-- `tide-reviewer-tests`: medium/high.
+- `tide`: GPT-5.5 high;
+- `tide-runner`: GPT-5.5 high quando envolver lógica de domínio, refactor relevante ou código de produção;
+- `tide-reviewer-durability`: GPT-5.5 high;
+- `tide-reviewer-tests`: GPT-5.5 medium/high.
 
 ### Alto risco
 
@@ -89,27 +114,27 @@ tide → checkpoint prévio → runner/operator → verifier → reviewer especi
 ```
 
 Modelo/effort desejado:
-- use high/xhigh nos reviewers especializados;
-- use high/xhigh no runner quando a implementação for sensível;
-- use medium/high no orquestrador;
+- `tide`: GPT-5.5 high;
+- `tide-runner`: GPT-5.5 Pro xhigh ou GPT-5.5 xhigh quando a implementação for sensível;
+- reviewers especializados: GPT-5.5 Pro xhigh ou GPT-5.5 xhigh;
 - não use modelo leve para decisões de risco.
 
 ## Matriz recomendada por agente
 
 | Agente | Recomendação | Observação |
 |---|---|---|
-| `tide` | medium/high | Decide risco, fronteira e subagentes. |
-| `tide-runner` | high para código; xhigh para código crítico | Qualidade de código importa mais que economia. |
-| `tide-verifier` | low/medium | Mecânico, mas precisa interpretar saídas. |
-| `tide-steward` | low/medium | Approve/reject/commit deve ser barato e curto. |
-| `tide-guide` | low/medium | Dúvidas simples; subir para medium se arquitetura. |
-| `tide-operator` | medium/high | Comandos de projeto podem ter risco operacional. |
-| `tide-reviewer-durability` | high/xhigh | Código durável exige julgamento. |
-| `tide-reviewer-simplicity` | medium/high | Julgamento de design, sem exagero. |
-| `tide-reviewer-tests` | medium/high | Deve avaliar se testes provam o risco certo. |
-| `tide-reviewer-security` | high/xhigh | Segurança sempre prioriza qualidade. |
-| `tide-reviewer-data` | high/xhigh | Banco, integridade e reprocessamento são críticos. |
-| `tide-reviewer-infra` | high/xhigh | Infra/deploy quebram ambiente inteiro. |
+| `tide` | GPT-5.5 medium/high | Decide risco, fronteira e subagentes. |
+| `tide-runner` | GPT-5.5 high; GPT-5.5 Pro xhigh para código crítico | Qualidade de código importa mais que economia. |
+| `tide-verifier` | GPT-5.5 Fast low/medium | Mecânico, mas precisa interpretar saídas. |
+| `tide-steward` | GPT-5.5 Fast low/medium | Approve/reject/commit deve ser barato e curto. |
+| `tide-guide` | GPT-5.5 Fast low/medium | Dúvidas simples; subir para GPT-5.5 medium se arquitetura. |
+| `tide-operator` | GPT-5.5 medium/high | Comandos de projeto podem ter risco operacional. |
+| `tide-reviewer-durability` | GPT-5.5 high/xhigh | Código durável exige julgamento. |
+| `tide-reviewer-simplicity` | GPT-5.5 medium/high | Julgamento de design, sem exagero. |
+| `tide-reviewer-tests` | GPT-5.5 medium/high | Deve avaliar se testes provam o risco certo. |
+| `tide-reviewer-security` | GPT-5.5 Pro xhigh ou GPT-5.5 xhigh | Segurança sempre prioriza qualidade. |
+| `tide-reviewer-data` | GPT-5.5 Pro xhigh ou GPT-5.5 xhigh | Banco, integridade e reprocessamento são críticos. |
+| `tide-reviewer-infra` | GPT-5.5 Pro xhigh ou GPT-5.5 xhigh | Infra/deploy quebram ambiente inteiro. |
 
 ## Steps recomendados
 
