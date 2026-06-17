@@ -2,7 +2,7 @@
 
 Este manual é voltado para quem usa o Tide Protocol como supervisor humano.
 
-O supervisor não precisa conhecer todos os prompts internos dos agentes. Ele precisa entender como instalar, iniciar, pedir trabalho, revisar checkpoint, aprovar, rejeitar e controlar risco/custo.
+O supervisor não precisa conhecer todos os prompts internos dos agentes. Ele precisa entender como instalar, iniciar, pedir trabalho, revisar checkpoint, aprovar, rejeitar, lidar com hardgates e controlar risco/custo.
 
 ## Papel do supervisor
 
@@ -26,22 +26,35 @@ O agente não deve:
 - executar comando sensível sem OK;
 - esconder validação inconclusiva.
 
-## Instalação recomendada para primeiro uso
+## Instalação recomendada
 
 Para testar sem afetar projetos que já usam `opencode-pack`, use instalação isolada:
 
 ```bash
 git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
 cd /tmp/tide-protocol
-bash install.sh --config-dir="$HOME/.config/opencode-tide" --bin-dir="$HOME/.local/bin" --force
+bash install.sh --force
+```
+
+Isso instala por padrão em:
+
+```txt
+~/.config/opencode-tide
 ```
 
 No projeto que usará Tide:
 
 ```bash
 cd meu-projeto
-tide init
-OPENCODE_CONFIG_DIR="$HOME/.config/opencode-tide" opencode
+tide opencode
+```
+
+`tide opencode` roda `tide init` por padrão e abre o OpenCode com a config isolada.
+
+Diagnóstico rápido:
+
+```bash
+tide doctor
 ```
 
 Assim, projetos que usam a configuração global continuam rodando com:
@@ -50,7 +63,28 @@ Assim, projetos que usam a configuração global continuam rodando com:
 opencode
 ```
 
+## O que `tide init` faz
+
+`tide init` prepara o repositório para Waves:
+
+- exige que você esteja dentro de um repositório Git;
+- cria `.opencode/waves/`;
+- cria/garante `.opencode/waves/registry.json`;
+- adiciona `.opencode/waves/` em `.git/info/exclude`;
+- não altera `.gitignore`;
+- não abre o OpenCode.
+
+Normalmente você não precisa chamar isso manualmente, porque `tide opencode` já chama `tide init` por padrão.
+
 ## Configuração de modelo recomendada
+
+O modo padrão é:
+
+```txt
+balanced-quality dinâmico
+```
+
+O Tide deve estimar o effort desejado (`medium`, `high`, `xhigh`) por Wave/subagente.
 
 Com os modelos exibidos na sua configuração OpenCode, a recomendação prática é:
 
@@ -64,7 +98,28 @@ Com os modelos exibidos na sua configuração OpenCode, a recomendação prátic
 | Approve/reject/status | GPT-5.5 Fast ou GPT-5.4 Fast | low/medium |
 | Dúvidas simples | GPT-5.5 Fast ou GPT-5.4 Fast | low/medium |
 
-O Tide deve estimar o effort desejado (`medium`, `high`, `xhigh`) e registrar isso no briefing ao subagente. A troca real de modelo depende da configuração suportada pelo OpenCode.
+A troca real de modelo depende da configuração suportada pelo OpenCode. Quando não houver troca automática, o Tide deve registrar no briefing ao subagente o effort desejado.
+
+## Modo fast
+
+Você pode pedir:
+
+```txt
+modo fast
+priorize velocidade
+use fast
+responda mais rápido
+```
+
+Modo fast significa:
+
+- menos investigação ampla;
+- menor Wave segura;
+- menos reviewers quando não houver risco real;
+- validação escopada antes de suite completa;
+- checkpoint dizendo que fast mode foi usado.
+
+Modo fast não desativa hardgates. Produção, banco, auth, secrets, deploy, permissões e comandos sensíveis continuam exigindo checkpoint.
 
 ## Como pedir uma tarefa
 
@@ -80,7 +135,7 @@ O esperado:
 
 ```txt
 1. tide cria/garante Wave;
-2. tide define risco, fronteira e effort;
+2. tide define risco, fronteira, SMART, hardgates e effort;
 3. tide delega código ao tide-runner;
 4. tide delega validação ao tide-verifier;
 5. tide registra evidência;
@@ -100,6 +155,7 @@ Evidência/validações
 SMART
 Durabilidade
 Riscos/restos
+Fast mode usado, se aplicável
 Opções: continuar, ajustar, acumular, /reject, /approve
 ```
 
@@ -111,6 +167,7 @@ Antes de aprovar, confira:
 - há risco de banco, produção, auth, permissões, deploy ou dados?
 - houve timeout ou validação inconclusiva?
 - os arquivos alterados fazem sentido?
+- a Wave está `validated`?
 
 ## Aprovar
 
@@ -128,10 +185,22 @@ tide approve TIDE-0001
 
 Approve deve:
 
+- exigir Wave `validated` por padrão;
+- exigir índice Git limpo antes do approve;
+- checar snapshot salvo contra diff atual;
+- bloquear overlap de Waves sem decisão explícita;
 - criar commit com ID da Wave;
 - marcar status como `committed`;
 - não fazer push;
 - confirmar working tree.
+
+Flags de bypass só devem ser usadas após checkpoint explícito:
+
+```bash
+tide approve TIDE-0001 --allow-unvalidated
+tide approve TIDE-0001 --allow-snapshot-drift
+tide approve TIDE-0001 --allow-overlap
+```
 
 ## Rejeitar
 
@@ -165,7 +234,7 @@ Aprovar juntas:
 /approve TIDE-0001 TIDE-0003
 ```
 
-Use isso quando as Waves fazem sentido no mesmo commit.
+Use isso quando as Waves fazem sentido no mesmo commit. Se houver overlap de arquivos, trate como hardgate.
 
 ## Hardgates do supervisor
 
@@ -184,7 +253,8 @@ Pare e peça explicação se aparecer:
 - script destrutivo;
 - nova dependência;
 - API pública;
-- muitos arquivos além do previsto.
+- muitos arquivos além do previsto;
+- validação inconclusiva.
 
 Frase útil:
 
@@ -192,9 +262,9 @@ Frase útil:
 Pare. Faça checkpoint antes de executar. Qual é o risco, fronteira e validação segura?
 ```
 
-## Controle de custo
+## Controle de custo e velocidade
 
-Use o perfil mental:
+Use o princípio:
 
 ```txt
 qualidade no código, economia no mecânico
@@ -214,14 +284,24 @@ Se perceber excesso de chamadas:
 Use fluxo enxuto. Sem reviewer salvo risco real. Uma validação escopada primeiro.
 ```
 
+Se precisar de resposta rápida:
+
+```txt
+Use modo fast nesta Wave.
+```
+
 ## Comandos úteis
 
 ```bash
+tide opencode
+tide open
+tide doctor
 tide wave list
 tide wave show TIDE-0001
 tide wave status TIDE-0001
 tide wave diff TIDE-0001 --stat
 tide wave files TIDE-0001
+tide wave finish TIDE-0001 --summary "..." --command "tide run ..." --result passed
 tide project commands
 tide project command <nome>
 tide project run <nome> --dry-run
@@ -240,6 +320,10 @@ Use high para o runner porque essa mudança afeta código de produção.
 
 ```txt
 Use xhigh para reviewer de segurança/dados/infra.
+```
+
+```txt
+Use modo fast nesta Wave, mas preserve hardgates.
 ```
 
 ```txt
