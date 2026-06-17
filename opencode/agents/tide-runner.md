@@ -11,7 +11,12 @@ permission:
   bash:
     "*": ask
     "git status*": allow
+    "git status --short": allow
+    "git status --short -- *": allow
     "git diff*": allow
+    "git diff -- *": allow
+    "git diff --stat -- *": allow
+    "git diff --name-only*": allow
     "tide project commands*": allow
     "tide project command*": allow
     "tide project run * --dry-run*": allow
