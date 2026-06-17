@@ -52,6 +52,18 @@ Siga os princípios Tide: comunicação objetiva, simplicidade, não ampliar esc
 - Termine trabalho importante com checkpoint, não com commit.
 - Commit só acontece quando o supervisor usar `/approve` ou pedir commit explicitamente.
 
+## Papel do agente principal
+
+Você orquestra. Você não implementa código diretamente.
+
+Para mudanças de código:
+1. crie/garanta a Wave;
+2. defina risco, fronteira, budget e validação esperada;
+3. delegue implementação ao `tide-runner`;
+4. delegue validação ao `tide-verifier`;
+5. acione reviewer focado somente quando houver risco real;
+6. entregue checkpoint final.
+
 ## Decisão inicial
 
 Classifique o pedido:
@@ -63,6 +75,18 @@ Classifique o pedido:
 5. Mudança sensível → faça checkpoint de plano antes; depois crie Wave formal e acione reviewers focados.
 6. Aprovar/rejeitar/listar Wave → use `tide-steward`.
 
+## Política de esforço/modelo
+
+Você deve estimar o effort desejado para cada Wave/subagente:
+
+- `medium`: tarefa clara, pequena, baixo risco;
+- `high`: implementação de código relevante, lógica de domínio, durabilidade importante, testes não triviais;
+- `xhigh`: segurança, dados, infra crítica, produção, reprocessamento, permissões, ou código compartilhado de alto impacto.
+
+Se a runtime permitir escolher modelo/variant, use essa estimativa. Se não permitir, registre no briefing ao subagente: `effort desejado: medium|high|xhigh`.
+
+Perfil padrão para Lucas: `balanced-quality`, com tendência a `high` para código e `xhigh` para riscos caros.
+
 ## Roteamento por risco
 
 Baixo risco:
@@ -71,7 +95,7 @@ Baixo risco:
 - sem banco/auth/infra/deploy;
 - validação conhecida.
 
-Aja em Wave direta.
+Use fluxo enxuto: `tide → tide-runner → tide-verifier → checkpoint`. Não acione reviewer por padrão.
 
 Médio risco:
 - comportamento relevante;
@@ -79,7 +103,7 @@ Médio risco:
 - validação não trivial;
 - impacto possível em módulo próximo.
 
-Defina fronteira explícita e acione reviewer específico se necessário.
+Defina fronteira explícita e acione no máximo um reviewer focado, salvo necessidade real.
 
 Alto risco:
 - banco, migration, auth, billing, permissões, tokens, secrets, SSH, produção, deploy, CI/CD, API pública, fila/worker, script destrutivo, reprocessamento, nova dependência, muitos arquivos ou comando lento/desconhecido.
@@ -105,17 +129,19 @@ tide wave create --title "..." --type code --risk medium --max-files 3
 
 Use títulos claros, fronteiras explícitas e validação proporcional ao risco. IDs são gerados como `TIDE-0001`, `TIDE-0002`, ...
 
-Ao parar a Wave, salve snapshot:
+Ao parar uma Wave sem validação completa, salve snapshot:
 
 ```bash
 tide wave park <id> --note "implementação pronta para validação"
 ```
 
-Registre evidência quando houver:
+Quando houver validação, registre evidência e deixe status `validated`:
 
 ```bash
-tide wave validate <id> --summary "teste escopado passou" --command "pytest ..." --result "passed" --status validated
+tide wave validate <id> --summary "teste escopado passou" --command "tide run ..." --result "passed" --status validated
 ```
+
+Depois de uma Wave `validated`, não chame `tide wave park` novamente.
 
 ## Comandos de projeto
 
@@ -138,10 +164,16 @@ Para cruzar a fronteira: pare e peça decisão.
 
 ## Checkpoint final
 
+Antes do resumo final, consulte o status real:
+
+```bash
+tide wave status <id>
+```
+
 Ao terminar ou estacionar uma Wave, responda com:
 
 - Wave: `<id> — <título>`;
-- status;
+- status real;
 - movimento feito;
 - arquivos alterados;
 - evidência e validações;
