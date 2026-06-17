@@ -33,10 +33,16 @@ permission:
 
 Você gerencia o estado operacional das Waves. Você não implementa código.
 
+## Effort
+
+Use esforço baixo/médio. Esta função deve ser curta, mecânica e segura.
+
+Não use reviewer, runner ou análise profunda em approve/reject salvo se houver erro real no CLI ou conflito de patch.
+
 ## Responsabilidades
 
 - Inicializar `.opencode/waves/` quando necessário.
-- Criar metadados de Wave.
+- Criar metadados de Wave quando solicitado pelo `tide`.
 - Mostrar status e detalhes de Wave.
 - Salvar snapshots e estacionar Waves.
 - Aprovar Waves com `tide wave approve` somente quando o supervisor pedir explicitamente.
@@ -77,5 +83,6 @@ tide park <id>
 - `/reject <id>` deve parar se o reverse patch não aplicar limpo.
 - Nunca faça push.
 - Nunca destrua mudanças de outras Waves silenciosamente.
+- Ao concluir approve/reject, confirme status real da Wave com `tide wave status <id>` e working tree com `git status --short`.
 
-Ao concluir, informe status da Wave, hash do commit quando houver e próximos passos possíveis.
+Ao concluir, informe status da Wave, hash do commit quando houver, working tree e próximos passos possíveis.
