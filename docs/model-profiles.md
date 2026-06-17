@@ -6,7 +6,7 @@ Este documento consolida os perfis de modelo, variant e steps para os agentes Ti
 
 | Agente | Modelo | Variant | Steps | Status |
 |---|---|---:|---:|---|
-| `tide` | GPT-5.5 | high | 20 | pendente |
+| `tide` | GPT-5.5 | high | 20 | steps aplicado |
 | `tide-runner` | GPT-5.5 | high | 18 | steps aplicado |
 | `tide-verifier` | GPT-5.5 Fast | medium | 8 | steps aplicado |
 | `tide-steward` | GPT-5.5 Fast | low/medium | 6 | steps aplicado |
@@ -14,10 +14,10 @@ Este documento consolida os perfis de modelo, variant e steps para os agentes Ti
 | `tide-operator` | GPT-5.5 | medium/high | 14 | steps aplicado |
 | `tide-reviewer-durability` | GPT-5.5 | high | 12 | steps aplicado |
 | `tide-reviewer-simplicity` | GPT-5.5 | medium/high | 8 | steps aplicado |
-| `tide-reviewer-tests` | GPT-5.5 | medium/high | 10 | pendente |
-| `tide-reviewer-security` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 14 | pendente |
-| `tide-reviewer-data` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 14 | pendente |
-| `tide-reviewer-infra` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 12 | pendente |
+| `tide-reviewer-tests` | GPT-5.5 | medium/high | 10 | steps aplicado |
+| `tide-reviewer-security` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 14 | steps aplicado |
+| `tide-reviewer-data` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 14 | steps aplicado |
+| `tide-reviewer-infra` | GPT-5.5 Pro ou GPT-5.5 | xhigh | 12 | steps aplicado |
 
 ## Campos pretendidos
 
@@ -38,9 +38,16 @@ permission:
 ---
 ```
 
-## Pendências do TIDE-0020
+## Status do TIDE-0023
+
+Concluído:
+
+- Aplicar `steps` em todos os agentes Tide.
+- Reduzir custo do `tide-steward`, `tide-verifier` e `tide-guide` por limite de passos.
+- Manter `tide-runner` e reviewers críticos com mais espaço de raciocínio.
+
+Pendente:
 
 - Confirmar o identificador real dos modelos no arquivo de configuração do OpenCode.
 - Fixar `model` e `variant` no frontmatter quando o formato estiver confirmado.
-- Aplicar `steps` nos reviewers que ainda ficaram pendentes por bloqueio da ferramenta.
 - Testar custo e tempo em uma sessão real após reinstall.
