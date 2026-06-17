@@ -36,23 +36,29 @@ Toda Wave deve ter:
 
 ## Fronteira suja
 
+O CLI agora é a camada de garantia de fronteira:
+
+- `tide wave finish --file <path>` restringe snapshot àqueles arquivos;
+- se a Wave foi criada com `--allow`, `finish` usa essa fronteira quando `--file` não for informado;
+- se existir arquivo modificado fora da fronteira, `finish` bloqueia por padrão;
+- override só com `--allow-outside-boundary` após checkpoint explícito.
+
 Antes de concluir uma Wave, confira se os arquivos modificados pertencem à fronteira.
 
 Se existir arquivo modificado fora da fronteira, como log de sessão, artefato local, relatório, arquivo temporário ou mudança pré-existente:
 
-- não use `tide wave finish`;
 - não ofereça `/approve`;
 - reporte o arquivo fora da fronteira;
-- peça decisão do supervisor: limpar, separar em outra Wave, estacionar separado ou incluir explicitamente.
+- peça decisão do supervisor: limpar, separar em outra Wave, estacionar separado, incluir explicitamente ou usar override consciente.
 
 ## Encerramento
 
 Quando a implementação ainda não está validada:
-- salve snapshot parcial com `tide wave park <id> --note "..."`;
+- salve snapshot parcial com `tide wave park <id> --file <path> --note "..."` quando a fronteira for conhecida;
 - não ofereça `/approve` como próxima opção principal.
 
 Quando a validação passar e a Wave estiver pronta para checkpoint:
-- use `tide wave finish <id> --summary "..." --command "..." --result passed`;
+- use `tide wave finish <id> --file <path> --summary "..." --command "..." --result passed` quando a fronteira for conhecida;
 - isso salva snapshot, arquivos, evidência e status `validated`;
 - confirme o status real com `tide wave status <id>`;
 - só então ofereça `/approve <id>` ou `/reject <id>`.
