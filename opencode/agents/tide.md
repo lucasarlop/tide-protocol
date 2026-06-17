@@ -12,7 +12,12 @@ permission:
     "*": ask
     "tide *": allow
     "git status*": allow
+    "git status --short": allow
+    "git status --short -- *": allow
     "git diff*": allow
+    "git diff -- *": allow
+    "git diff --stat -- *": allow
+    "git diff --name-only*": allow
     "git log*": allow
     "ls *": allow
     "find *": allow
