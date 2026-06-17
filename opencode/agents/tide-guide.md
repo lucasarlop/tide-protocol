@@ -1,6 +1,7 @@
 ---
 description: Responde dúvidas sobre o projeto atual sem alterar arquivos.
 mode: subagent
+steps: 10
 permission:
   read: allow
   list: allow
