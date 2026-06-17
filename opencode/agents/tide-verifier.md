@@ -1,6 +1,7 @@
 ---
 description: Executa validações, testes e checks com runtime policy. Não edita código.
 mode: subagent
+steps: 8
 permission:
   read: allow
   list: allow
