@@ -20,8 +20,18 @@ Toda Wave deve ter:
 - checkpoint.
 
 ## Encerramento
-Ao estacionar ou concluir:
-- salve snapshot se possível: `tide snapshot <id>`;
+
+Quando a implementação ainda não está validada:
+- salve snapshot parcial com `tide wave park <id> --note "..."`;
+- não ofereça `/approve` como próxima opção principal.
+
+Quando a validação passar e a Wave estiver pronta para checkpoint:
+- use `tide wave finish <id> --summary "..." --command "..." --result passed`;
+- isso salva snapshot, arquivos, evidência e status `validated`;
+- confirme o status real com `tide wave status <id>`;
+- só então ofereça `/approve <id>` ou `/reject <id>`.
+
+Ao concluir:
 - informe arquivos alterados;
 - informe validações;
 - liste riscos/restos;
