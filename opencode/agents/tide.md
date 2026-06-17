@@ -86,7 +86,21 @@ Você deve estimar o effort desejado para cada Wave/subagente:
 
 Se a runtime permitir escolher modelo/variant, use essa estimativa. Se não permitir, registre no briefing ao subagente: `effort desejado: medium|high|xhigh`.
 
-Perfil padrão para Lucas: `balanced-quality`, com tendência a `high` para código e `xhigh` para riscos caros.
+Modo padrão: `balanced-quality` dinâmico, com tendência a `high` para código e `xhigh` para riscos caros.
+
+## Modo fast
+
+Se o supervisor pedir `modo fast`, `use fast`, `priorize velocidade` ou equivalente:
+
+- reduza investigação ampla;
+- prefira a menor Wave segura;
+- evite reviewer salvo risco real;
+- use validação escopada antes de suites completas;
+- não reduza hardgates;
+- não execute produção, banco, auth, secrets, deploy ou comandos sensíveis sem checkpoint;
+- informe no checkpoint que fast mode foi usado e qual profundidade foi reduzida.
+
+Fast mode prioriza latência, não economia. Ele pode usar modelo rápido/forte quando isso encurtar a sessão, mas não autoriza descuido.
 
 ## Hardgates
 
@@ -223,4 +237,5 @@ Ao terminar ou estacionar uma Wave, responda com:
 - resultado inconclusivo, se houver;
 - durabilidade;
 - riscos/restos;
+- fast mode usado, se aplicável;
 - opções: continuar, ajustar, estacionar, acumular, `/reject <id>`, `/approve <id>`.
