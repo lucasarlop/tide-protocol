@@ -1,80 +1,114 @@
 # Roadmap para Tide Protocol 1.0
 
-O Tide 0.5.0 é o MVP operacional. O 1.0 deve ser marcado somente quando o protocolo estiver testado em projetos reais e com política de modelos consolidada.
+O Tide 0.5.0 é o MVP operacional. O 1.0 deve ser marcado somente quando o protocolo estiver testado em projetos reais, com fluxo de supervisor confiável e política dinâmica de modelos/effort validada em uso.
+
+## Estado atual
+
+Concluído desde 0.5.0:
+
+- política de modelos/effort documentada;
+- `steps` aplicado em todos os agentes Tide;
+- `balanced-quality` dinâmico como modo padrão;
+- `modo fast` como orientação operacional opcional;
+- delegação de código reforçada para `tide-runner`;
+- `tide-verifier` orientado a usar `tide run` ou `tide project run`;
+- lifecycle endurecido com `tide wave finish`;
+- `tide wave park` não rebaixa `validated` sem confirmação explícita;
+- approve/reject endurecido no CLI;
+- instalação isolada como padrão seguro;
+- `tide opencode` / `tide open`;
+- `tide doctor`;
+- hardgates e SMART documentados e presentes no agente principal;
+- README e manual do supervisor atualizados.
 
 ## Pendências críticas antes do 1.0
 
-### TIDE-0011 — Model Policy e qualidade/custo
+### TIDE-0027 — Field test demo
 
-Status: iniciado.
+Validar o fluxo completo em projeto demo:
 
-Entregas:
-- documentar política de modelos;
-- fixar modelos/variants nos agentes quando os IDs reais forem confirmados;
-- limitar steps por agente;
-- criar perfis `balanced-quality`, `quality` e `economy`;
-- garantir que `tide-steward` e `tide-verifier` não herdem sempre modelo caro;
-- garantir que `tide-runner` possa usar high/xhigh quando qualidade de código importar.
+```txt
+tide opencode → pedido natural → Wave → runner → verifier → finish → checkpoint → approve/reject
+```
 
-### TIDE-0012 — Delegação correta de código
+Critérios:
 
-Problema observado no demo:
-- agente principal editou arquivo via shell/script;
-- ideal é delegar implementação ao `tide-runner`.
+- Wave criada sem o supervisor chamar `tide wave create` manualmente;
+- implementação delegada ao `tide-runner`;
+- validação usa `tide run` ou `tide project run`;
+- status final fica `validated` antes do approve;
+- `tide approve` cria commit seguro;
+- custo/tempo aceitável.
 
-Entregas:
-- reforçar prompt do `tide` para não editar código;
-- reforçar `tide-runner` como responsável por mudanças;
-- manter `tide` como orquestrador;
-- garantir que baixo risco use fluxo enxuto.
+### TIDE-0028 — Field test Python real
 
-### TIDE-0013 — Lifecycle validate/park
+Validar em um projeto Python real pequeno.
 
-Problema observado no demo:
-- Wave foi validada e depois estacionada, podendo rebaixar status para `parked`.
+Critérios:
 
-Entregas:
-- depois de `validated`, não chamar `park` de novo;
-- preferir `snapshot` com status `validated` quando houver validação;
-- checkpoint final deve consultar o status real da Wave antes de responder.
+- ambiente real, não só demo;
+- mudança pequena com teste escopado;
+- `tide doctor` antes da sessão;
+- `tide opencode` como entrada;
+- approve sem snapshot drift;
+- CI ou testes locais passando.
 
-### TIDE-0014 — Runtime policy obrigatória
+### TIDE-0029 — Field test Node/JS real
 
-Problema observado no demo:
-- teste foi rodado diretamente com `python3 -m unittest` em vez de `tide run`.
+Validar em projeto Node/JS.
 
-Entregas:
-- toda validação executável deve usar `tide run` ou `tide project run`, salvo justificativa explícita;
-- catálogo do projeto deve ser preferido quando existir;
-- `python3` deve ser preferido a `python` quando não houver comando catalogado.
+Critérios:
 
-### TIDE-0015 — Instalação isolada como caminho padrão de teste
+- descoberta de `package.json`;
+- uso de comando catalogado ou script npm descoberto;
+- validação com timeout;
+- checkpoint final claro.
 
-Problema:
-- instalação global pode interferir com `opencode-pack` em projetos existentes.
+### TIDE-0030 — Field test com comandos operacionais catalogados
 
-Entregas:
-- manter instalação isolada como recomendação padrão de teste;
-- documentar `OPENCODE_CONFIG_DIR=$HOME/.config/opencode-tide opencode`;
-- evitar sobrescrever comandos globais do usuário sem confirmação.
+Validar projeto com `tide.commands.json` ou `.opencode/tide/commands.json`.
 
-### TIDE-0016 — MCP e OpenCode config
+Critérios:
 
-Entregas:
-- fornecer exemplo real de config OpenCode com MCP Tide;
-- garantir caminho absoluto para `tide_mcp.py`;
-- manter MCP context-only por padrão;
-- deixar execução real no CLI e no supervisor.
+- `tide project commands` lista comandos esperados;
+- `tide project run <nome> --dry-run` funciona;
+- comando sensível exige `--yes`;
+- hardgate operacional é respeitado.
 
-### TIDE-0017 — Testes de campo
+### TIDE-0031 — Field test isolado com projeto que usa opencode-pack
 
-Antes do 1.0, validar em pelo menos:
+Validar que Tide não interfere na configuração global existente.
 
-1. projeto demo;
-2. um projeto Python real;
-3. um projeto Node/JS real;
-4. um projeto com comandos operacionais catalogados;
-5. um projeto que já usa `opencode-pack`, usando instalação isolada.
+Critérios:
+
+- `opencode` continua usando configuração normal;
+- `tide opencode` usa `~/.config/opencode-tide`;
+- `tide doctor` encontra a config isolada;
+- nenhum arquivo do `opencode-pack` é sobrescrito.
+
+### TIDE-0032 — Confirmar IDs reais de model/variant
+
+A política já está documentada e `steps` já está aplicado. Falta confirmar os IDs exatos aceitos pelo OpenCode para fixar `model`/`variant` com segurança.
+
+Critérios:
+
+- identificar o formato real de modelo no arquivo de configuração local do OpenCode;
+- testar um agente com `model` e `variant` fixos;
+- se funcionar, aplicar nos agentes;
+- se não funcionar, manter decisão dinâmica por briefing.
+
+### TIDE-0033 — Release candidate 1.0
+
+Preparar uma versão candidata.
+
+Critérios:
+
+- CI verde;
+- README, install, supervisor manual e roadmap alinhados;
+- changelog fechado;
+- `VERSION` atualizado;
+- tag candidata criada;
+- instruções de rollback documentadas.
 
 ## Critérios de 1.0
 
@@ -82,12 +116,15 @@ Marcar 1.0 somente quando:
 
 - CI passar;
 - instalação isolada funcionar sem afetar `opencode-pack`;
+- `tide opencode` for o caminho principal de entrada;
+- `tide doctor` diagnosticar instalação corretamente;
 - agente criar Waves sozinho a partir de pedido natural;
 - mudança de código for delegada ao runner;
 - validação usar `tide run` ou `tide project run`;
 - status final da Wave for coerente;
 - approve/reject continuar seguro;
-- política de modelos estiver aplicada aos agentes;
+- hardgates e SMART aparecerem nos checkpoints relevantes;
+- modo fast funcionar como orientação operacional sem burlar hardgates;
 - documentação estiver atualizada;
 - pelo menos dois testes reais em projetos forem bem-sucedidos.
 
@@ -97,4 +134,10 @@ O 1.0 não precisa ter tudo que o Tide um dia pode ser. Ele precisa ser confiáv
 
 ```txt
 pedido natural → Wave → execução por subagente certo → validação com timeout → checkpoint → approve/reject seguro
+```
+
+O 1.0 também deve manter a regra central:
+
+```txt
+O supervisor decide. O agente propõe, executa dentro da fronteira e evidencia.
 ```
