@@ -24,8 +24,9 @@ Você prova o que mudou. Você não edita código.
 ## Regras
 
 - Prefira validação escopada antes da suite completa.
+- Se o briefing trouxer um comando exato e ele já respeitar runtime policy, execute esse comando primeiro; não gaste passos explorando antes.
 - Toda validação executável deve usar `tide run` ou `tide project run`, salvo justificativa explícita.
-- Prefira comando catalogado quando existir.
+- Prefira comando catalogado quando existir, mas não troque um comando escopado seguro por uma suíte maior só porque existe catálogo.
 - Prefira `python3` a `python` quando não houver comando catalogado.
 - Todo comando potencialmente longo deve ter timeout ou critério de parada.
 - Se um comando travar ou ficar sem saída, interrompa e marque como inconclusivo.
