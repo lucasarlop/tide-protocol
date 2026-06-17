@@ -77,23 +77,65 @@ Próxima otimização técnica recomendada:
 
 - endurecer o CLI para permitir snapshot/finish por arquivos explícitos ou por fronteira (`--file`/`--allow`) e evitar que arquivo fora da Wave entre no snapshot por acidente.
 
-## Próximo field test sugerido — boundary/dirty-tree
+## TIDE-0030 — Boundary dirty-tree test
 
-Objetivo: confirmar que o Tide para quando houver arquivo sujo fora da fronteira.
+Status: aprovado com ajuste de ergonomia aplicado depois do teste.
+
+Resumo:
+
+- Wave criada automaticamente: `TIDE-0004`.
+- Fronteira rígida: `src/tide_demo/config.py` e `tests/test_config.py`.
+- Runner alterou apenas arquivos permitidos.
+- Verifier executou teste escopado.
+- Verifier detectou arquivos fora da fronteira: `notes.tmp` e `session-ses_129d.md`.
+- Verifier não executou `tide wave finish`.
+- Checkpoint não ofereceu `/approve`.
+- Wave permaneceu `running`.
+
+Resultado esperado confirmado:
+
+- arquivo sujo fora da fronteira bloqueia `finish`;
+- supervisor precisa decidir limpar, separar, estacionar ou incluir explicitamente.
+
+Problema de ergonomia observado:
+
+- O runner executou teste direto e pediu permissão do usuário para comando seguro/escopado.
+- O runner também atingiu limite de steps.
+
+Ajustes aplicados:
+
+- `tide-runner` agora deve deixar validação para o `tide-verifier` quando o fluxo normal disser que verifier validará depois.
+- `tide-runner` recebeu allowlist para comandos seguros e escopados como `tide run *` e `python3 -m unittest tests*`.
+- `tide` agora deve dizer explicitamente ao runner: não rode testes; o verifier validará depois.
+
+Próxima otimização técnica recomendada:
+
+- mover a regra de fronteira para o CLI: `tide wave finish --file ...` ou finish por arquivos permitidos, reduzindo dependência de prompt.
+
+## Próximo field test sugerido — permission/runner ergonomics
+
+Objetivo: confirmar que o runner não pede permissão desnecessária nem roda teste que o verifier vai repetir.
 
 Preparação:
 
-- criar ou modificar um arquivo não relacionado no projeto demo, como `notes.tmp` ou `session-local.md`;
-- pedir uma Wave pequena que deveria tocar apenas `src/tide_demo/config.py` e `tests/test_config.py`.
+- limpe arquivos fora da fronteira do projeto demo;
+- reinstale Tide após CI verde.
+
+Pedido sugerido:
+
+```txt
+@tide ajuste uma mensagem pequena em `src/tide_demo/config.py`, mantendo a fronteira em `src/tide_demo/config.py` e `tests/test_config.py`. Não rode testes no runner; deixe o verifier validar com teste escopado.
+```
 
 Critério de aprovação:
 
-- o verifier deve executar validação se apropriado;
-- ao ver arquivo fora da fronteira, deve parar antes de `tide wave finish`;
-- checkpoint deve pedir decisão do supervisor;
-- `/approve` não deve ser oferecido antes de resolver a sujeira fora da fronteira.
+- runner não executa teste;
+- nenhuma permissão para `python3 -m unittest` aparece no runner;
+- verifier executa teste uma vez;
+- verifier usa `tide wave finish` se a fronteira estiver limpa;
+- checkpoint oferece `/approve` apenas após `validated`.
 
-## Field test médio/complexo sugerido depois do boundary test
+## Field test médio/complexo sugerido depois
 
 Objetivo: testar fluxo mais completo sem entrar em produção, banco real ou deploy.
 
