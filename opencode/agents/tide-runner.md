@@ -17,6 +17,14 @@ permission:
     "git diff -- *": allow
     "git diff --stat -- *": allow
     "git diff --name-only*": allow
+    "rtk git status*": allow
+    "rtk git status --short": allow
+    "rtk git status --short -- *": allow
+    "rtk git diff*": allow
+    "rtk git diff -- *": allow
+    "rtk git diff --stat -- *": allow
+    "rtk git diff --name-only*": allow
+    "rtk ls*": allow
     "tide project commands*": allow
     "tide project command*": allow
     "tide project run * --dry-run*": allow
