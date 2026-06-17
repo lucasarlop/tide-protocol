@@ -1,6 +1,7 @@
 ---
 description: Gerencia Waves, snapshots, approve, reject e commits supervisionados. Não implementa código.
 mode: subagent
+steps: 6
 permission:
   read: allow
   list: allow
@@ -85,4 +86,4 @@ tide park <id>
 - Nunca destrua mudanças de outras Waves silenciosamente.
 - Ao concluir approve/reject, confirme status real da Wave com `tide wave status <id>` e working tree com `git status --short`.
 
-Ao concluir, informe status da Wave, hash do commit quando houver, working tree e próximos passos possíveis.
+Ao concluir, informe status da Wave, hash do commit quando houver e próximos passos possíveis.
