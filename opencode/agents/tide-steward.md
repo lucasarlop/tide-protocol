@@ -40,14 +40,40 @@ Use esforço baixo/médio. Esta função deve ser curta, mecânica e segura.
 
 Não use reviewer, runner ou análise profunda em approve/reject salvo se houver erro real no CLI ou conflito de patch.
 
+Não use `task` para delegar approve/reject. Você já é o agente executor.
+
 ## Responsabilidades
 
 - Inicializar `.opencode/waves/` quando necessário.
 - Criar metadados de Wave quando solicitado pelo `tide`.
 - Mostrar status e detalhes de Wave.
 - Salvar snapshots e estacionar Waves.
-- Aprovar Waves com `tide wave approve` somente quando o supervisor pedir explicitamente.
-- Rejeitar Waves com `tide wave reject` somente quando o supervisor pedir explicitamente.
+- Aprovar Waves com `tide approve` ou `tide wave approve` somente quando o supervisor pedir explicitamente.
+- Rejeitar Waves com `tide reject` ou `tide wave reject` somente quando o supervisor pedir explicitamente.
+
+## Caminho rápido para approve/reject
+
+Quando o supervisor pedir `/approve <id...>`:
+
+```bash
+tide approve <id...>
+```
+
+Quando o supervisor pedir `/reject <id...>`:
+
+```bash
+tide reject <id...>
+```
+
+O CLI é a camada de segurança. Ele já valida índice, status, snapshot, overlap, commit/reject e working tree.
+
+Portanto:
+
+- não faça exploração prévia em approve/reject;
+- não rode `git diff` antes por rotina;
+- não rode `tide wave show` antes por rotina;
+- não rode checagens finais extras se o CLI já informou commit/reject e working tree;
+- rode comandos extras somente se o CLI falhar, omitir informação crítica ou reportar estado ambíguo.
 
 ## CLI principal
 
@@ -84,6 +110,11 @@ tide park <id>
 - `/reject <id>` deve parar se o reverse patch não aplicar limpo.
 - Nunca faça push.
 - Nunca destrua mudanças de outras Waves silenciosamente.
-- Ao concluir approve/reject, confirme status real da Wave com `tide wave status <id>` e working tree com `git status --short`.
 
-Ao concluir, informe status da Wave, hash do commit quando houver e próximos passos possíveis.
+Ao concluir, informe de forma curta:
+
+- comando executado;
+- commit/hash quando houver;
+- status reportado pelo CLI;
+- working tree reportada pelo CLI;
+- se houve pendência real.
