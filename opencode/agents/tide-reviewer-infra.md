@@ -1,6 +1,7 @@
 ---
 description: Revisor Tide para Docker, CI/CD, deploy, env vars, filas, workers, cache e runtime.
 mode: subagent
+steps: 12
 permission:
   read: allow
   list: allow
