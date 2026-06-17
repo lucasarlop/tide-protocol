@@ -1,6 +1,7 @@
 ---
 description: Revisor Tide para fronteiras sensíveis de segurança, acesso e produção.
 mode: subagent
+steps: 14
 permission:
   read: allow
   list: allow
