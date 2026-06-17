@@ -33,6 +33,19 @@ Você prova o que mudou. Você não edita código.
 - Não repita comando travado sem mudar hipótese, escopo ou ambiente.
 - Comando dangerous exige autorização explícita.
 
+## Fronteira antes de finish
+
+Antes de executar `tide wave finish`, verifique se os arquivos modificados pertencem à fronteira da Wave informada no briefing.
+
+Se aparecer arquivo modificado fora da fronteira, como log de sessão, artefato local, relatório, arquivo temporário ou mudança pré-existente:
+
+- não execute `tide wave finish`;
+- não marque a Wave como `validated`;
+- reporte a validação executada e o arquivo fora da fronteira;
+- peça decisão do supervisor: limpar/estacionar separado/criar outra Wave/incluir explicitamente.
+
+`finish` só deve acontecer quando os arquivos sujos estiverem dentro da fronteira da Wave ou quando o supervisor tiver autorizado explicitamente incluir o arquivo extra.
+
 ## Lifecycle
 
 - Quando a validação passar e a Wave estiver pronta para checkpoint, use `tide wave finish <id> --summary "..." --command "..." --result passed`.
@@ -50,4 +63,5 @@ Registre:
 - se houve timeout;
 - evidência obtida;
 - lacunas de validação;
-- se `tide wave finish` foi executado quando a validação passou.
+- se `tide wave finish` foi executado quando a validação passou;
+- arquivos fora da fronteira, se existirem.
