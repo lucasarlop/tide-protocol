@@ -8,6 +8,9 @@
 - Consolidação dos ajustes de agentes em `docs/agent-adjustments.md`.
 - Política de Hardgates e SMART em `docs/hardgates-smart.md`.
 - Manual do Supervisor em `docs/supervisor-manual.md`.
+- Guia de segurança do fluxo de aprovação em `docs/commit-safety.md`.
+- `tide wave finish` para salvar snapshot, registrar evidência e deixar Wave como `validated`.
+- Testes do ciclo seguro de aprovação, snapshot e validação.
 
 ### Alterado
 - `tide` agora explicita que o agente principal orquestra e deve delegar código ao `tide-runner`.
@@ -16,6 +19,9 @@
 - `tide-verifier` passa a exigir `tide run` ou `tide project run` para validações executáveis, salvo justificativa.
 - `tide-steward` foi reforçado como fluxo curto, mecânico e de baixo custo para approve/reject.
 - `docs/model-policy.md` agora mapeia a política aos modelos OpenAI disponíveis na configuração informada pelo supervisor.
+- O fluxo de aprovação agora é mais restritivo por padrão: requer Wave validada, snapshot coerente e índice limpo.
+- `tide wave park` não rebaixa uma Wave `validated` sem confirmação explícita.
+- CLI e MCP agora leem a versão do arquivo `VERSION` quando disponível.
 
 ## [0.5.0] — 2026-06-16
 
