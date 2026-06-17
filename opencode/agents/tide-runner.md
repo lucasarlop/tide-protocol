@@ -1,6 +1,7 @@
 ---
 description: Executa mudanças de código dentro da fronteira de uma Wave.
 mode: subagent
+steps: 18
 permission:
   read: allow
   list: allow
