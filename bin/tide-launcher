@@ -2,7 +2,7 @@
 """Tide launcher installed as `tide`.
 
 Delegates regular commands to `tide-cli` and provides convenience commands such as
-`tide opencode`.
+`tide opencode` and `tide doctor`.
 """
 from __future__ import annotations
 
@@ -81,9 +81,95 @@ def run_opencode(args: list[str]) -> int:
     return subprocess.call(["opencode", *forwarded], env=env)
 
 
+def status_line(ok: bool, label: str, detail: str = "") -> None:
+    mark = "ok" if ok else "warn"
+    suffix = f" — {detail}" if detail else ""
+    print(f"[{mark}] {label}{suffix}")
+
+
+def command_output(args: list[str], *, cwd: Path | None = None) -> tuple[int, str]:
+    try:
+        result = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
+    except OSError as exc:
+        return 127, str(exc)
+    output = (result.stdout or result.stderr or "").strip()
+    return result.returncode, output
+
+
+def parse_doctor_args(args: list[str]) -> str:
+    config_dir = default_config_dir()
+    i = 0
+    while i < len(args):
+        item = args[i]
+        if item == "--config-dir":
+            if i + 1 >= len(args):
+                print("erro: --config-dir requer valor", file=sys.stderr)
+                raise SystemExit(1)
+            config_dir = args[i + 1]
+            i += 2
+        elif item.startswith("--config-dir="):
+            config_dir = item.split("=", 1)[1]
+            i += 1
+        else:
+            print(f"erro: opção desconhecida para doctor: {item}", file=sys.stderr)
+            raise SystemExit(1)
+    return config_dir
+
+
+def run_doctor(args: list[str]) -> int:
+    config_dir = Path(parse_doctor_args(args)).expanduser()
+    tide_cli = Path(find_tide_cli())
+    print("Tide Doctor")
+    print(f"launcher : {Path(__file__).resolve()}")
+    print(f"tide-cli : {tide_cli}")
+    print(f"config   : {config_dir}")
+    print("")
+
+    ok = True
+
+    cli_exists = tide_cli.exists()
+    status_line(cli_exists, "tide-cli encontrado", str(tide_cli))
+    ok = ok and cli_exists
+    if cli_exists:
+        code, out = command_output([str(tide_cli), "--version"])
+        status_line(code == 0, "tide-cli executa", out)
+        ok = ok and code == 0
+
+    opencode_path = shutil.which("opencode")
+    status_line(bool(opencode_path), "opencode no PATH", opencode_path or "não encontrado")
+    ok = ok and bool(opencode_path)
+
+    status_line(config_dir.exists(), "config dir existe", str(config_dir))
+    ok = ok and config_dir.exists()
+    for rel in ["agents", "commands", "skills", "rules/tide", "tide-mcp/tide_mcp.py"]:
+        path = config_dir / rel
+        exists = path.exists()
+        status_line(exists, rel, str(path))
+        ok = ok and exists
+
+    code, root = command_output(["git", "rev-parse", "--show-toplevel"])
+    in_git = code == 0
+    status_line(in_git, "repositório git", root if in_git else "rode dentro de um repo para checar Waves")
+    if in_git:
+        repo = Path(root)
+        waves = repo / ".opencode" / "waves"
+        registry = waves / "registry.json"
+        status_line(waves.exists(), "diretório de Waves", str(waves))
+        status_line(registry.exists(), "registry de Waves", str(registry))
+
+    print("")
+    if ok:
+        print("Doctor: ok")
+        return 0
+    print("Doctor: há avisos; revise os itens acima")
+    return 1
+
+
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] in {"opencode", "open"}:
         return run_opencode(argv[2:])
+    if len(argv) > 1 and argv[1] == "doctor":
+        return run_doctor(argv[2:])
     return run_tide_cli(argv[1:])
 
 
