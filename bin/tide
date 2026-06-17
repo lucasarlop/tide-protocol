@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,10 +16,23 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
 
-VERSION = "0.4.0"
+DEFAULT_VERSION = "0.5.0"
 WAVES_DIR = Path(".opencode/waves")
 VALID_STATUSES = {"running", "parked", "validated", "committed", "rejected", "failed"}
 SENSITIVE_SAFETY = {"mutating", "dangerous", "production", "ssh", "database", "db", "destructive"}
+
+
+def load_cli_version() -> str:
+    for candidate in [Path(__file__).resolve().parents[1] / "VERSION", Path.cwd() / "VERSION"]:
+        try:
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8").strip() or DEFAULT_VERSION
+        except OSError:
+            continue
+    return DEFAULT_VERSION
+
+
+VERSION = load_cli_version()
 
 
 class TideError(RuntimeError):
@@ -59,6 +73,10 @@ def git_head(short: bool = False) -> str:
 
 def now_iso() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
+
+
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def ensure_waves_dir() -> None:
@@ -152,13 +170,11 @@ def write_wave_files(wave: dict[str, Any]) -> None:
     wave["updated_at"] = now_iso()
     write_json(directory / "wave.json", wave)
     (directory / "wave.md").write_text(render_wave_md(wave), encoding="utf-8")
-    for filename, default in [("files.json", []), ("validations.json", []), ("wave.diff", "")]:
-        path = directory / filename
-        if not path.exists():
-            if isinstance(default, str):
-                path.write_text(default, encoding="utf-8")
-            else:
-                write_json(path, default)
+    write_json(directory / "files.json", wave.get("files", []))
+    write_json(directory / "validations.json", wave.get("validations", []))
+    patch_path = directory / "wave.diff"
+    if not patch_path.exists():
+        patch_path.write_text("", encoding="utf-8")
     update_registry(wave)
 
 
@@ -238,20 +254,45 @@ def worktree_has_changes() -> bool:
     return bool(run_git(["status", "--porcelain"]).stdout.strip())
 
 
+def index_has_staged_changes() -> bool:
+    return run_git(["diff", "--cached", "--quiet"], check=False).returncode != 0
+
+
 def tracked_and_untracked_files() -> list[str]:
     tracked = run_git(["diff", "--name-only", "HEAD"]).stdout.splitlines()
     untracked = run_git(["ls-files", "--others", "--exclude-standard"]).stdout.splitlines()
     return sorted(set(p for p in tracked + untracked if p.strip()))
 
 
+def is_tracked(path: str) -> bool:
+    return run_git(["ls-files", "--error-unmatch", path], check=False).returncode == 0
+
+
+def no_index_patch_for_untracked(path: str) -> str:
+    if not (repo_root() / path).exists():
+        return ""
+    result = subprocess.run(["git", "diff", "--no-index", "--binary", "--", "/dev/null", path], text=True, capture_output=True)
+    return result.stdout or ""
+
+
 def build_patch() -> str:
     patch = run_git(["diff", "--binary", "HEAD"]).stdout
     for path in run_git(["ls-files", "--others", "--exclude-standard"]).stdout.splitlines():
-        if not path:
-            continue
-        result = subprocess.run(["git", "diff", "--no-index", "--binary", "--", "/dev/null", path], text=True, capture_output=True)
-        if result.stdout:
-            patch += result.stdout
+        if path:
+            patch += no_index_patch_for_untracked(path)
+    return patch
+
+
+def build_patch_for_paths(paths: list[str]) -> str:
+    if not paths:
+        return ""
+    tracked_paths = [p for p in paths if is_tracked(p)]
+    untracked_paths = [p for p in paths if not is_tracked(p)]
+    patch = ""
+    if tracked_paths:
+        patch += run_git(["diff", "--binary", "HEAD", "--", *tracked_paths]).stdout
+    for path in sorted(untracked_paths):
+        patch += no_index_patch_for_untracked(path)
     return patch
 
 
@@ -265,15 +306,34 @@ def set_wave_status(wave_id: str, status: str, note: str | None = None) -> None:
     write_wave_files(wave)
 
 
-def snapshot_wave(wave_id: str, *, status: str = "parked", note: str | None = None) -> None:
+def enforce_wave_budget(wave: dict[str, Any], files: list[str], *, allow_overbudget: bool = False) -> None:
+    max_files = wave.get("max_files")
+    if max_files is None or allow_overbudget:
+        return
+    try:
+        max_files_int = int(max_files)
+    except (TypeError, ValueError):
+        return
+    if max_files_int >= 0 and len(files) > max_files_int:
+        die(
+            f"{wave['id']} excedeu max-files={max_files_int}: {len(files)} arquivos detectados. "
+            "Reduza a Wave, limpe mudanças fora da fronteira ou use --allow-overbudget após checkpoint."
+        )
+
+
+def snapshot_wave(wave_id: str, *, status: str = "parked", note: str | None = None, allow_overbudget: bool = False) -> None:
     wave = read_wave(wave_id)
     files = tracked_and_untracked_files()
+    enforce_wave_budget(wave, files, allow_overbudget=allow_overbudget)
     patch = build_patch()
     directory = wave_dir(wave_id)
     (directory / "wave.diff").write_text(patch, encoding="utf-8")
     write_json(directory / "files.json", files)
     wave["files"] = files
     wave["status"] = status
+    wave["snapshot_at"] = now_iso()
+    wave["snapshot_sha256"] = sha256_text(patch)
+    wave["snapshot_file_count"] = len(files)
     if note:
         wave["result"] = note
     write_wave_files(wave)
@@ -299,6 +359,14 @@ def wave_files(wave_id: str) -> list[str]:
     return read_wave(wave_id).get("files", [])
 
 
+def selected_wave_file_counts(selected_ids: list[str]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for wid in selected_ids:
+        for path in wave_files(wid):
+            counts[path] = counts.get(path, 0) + 1
+    return counts
+
+
 def check_overlap(selected_ids: list[str]) -> None:
     selected = set(selected_ids)
     selected_files: set[str] = set()
@@ -322,12 +390,52 @@ def check_overlap(selected_ids: list[str]) -> None:
         die("\n".join(lines))
 
 
-def commit_waves(wave_ids: list[str], message: str | None = None, *, allow_overlap: bool = False) -> None:
+def validate_snapshot_matches(wave_id: str) -> None:
+    patch_path = wave_dir(wave_id) / "wave.diff"
+    if not patch_path.exists() or patch_path.stat().st_size == 0:
+        die(f"{wave_id} não tem snapshot salvo; rode `tide wave park {wave_id}` ou `tide wave finish {wave_id}` antes")
+    saved = patch_path.read_text(encoding="utf-8")
+    current = build_patch_for_paths(wave_files(wave_id))
+    if current != saved:
+        die(
+            f"snapshot de {wave_id} divergiu do estado atual dos arquivos registrados. "
+            "Isso pode misturar mudanças fora da Wave. Revise o diff, gere novo snapshot/validação ou use --allow-snapshot-drift após checkpoint explícito."
+        )
+
+
+def append_validation(wave_id: str, *, summary: str, command: str | None, result: str | None, status: str | None = None) -> None:
+    wave = read_wave(wave_id)
+    validation = {"created_at": now_iso(), "summary": summary, "command": command, "result": result}
+    wave.setdefault("validations", []).append(validation)
+    if status:
+        wave["status"] = status
+    write_wave_files(wave)
+
+
+def commit_waves(
+    wave_ids: list[str],
+    message: str | None = None,
+    *,
+    allow_overlap: bool = False,
+    allow_unvalidated: bool = False,
+    allow_snapshot_drift: bool = False,
+) -> None:
+    if index_has_staged_changes():
+        die("há mudanças staged antes do approve. Desfaça/commite o índice ou remova do stage para evitar mistura de commit")
+
     for wid in wave_ids:
         require_wave_id(wid)
         status = read_wave(wid).get("status")
         if status in {"committed", "rejected"}:
             die(f"{wid} já está {status}")
+        if status != "validated" and not allow_unvalidated:
+            die(f"{wid} está {status}; approve exige status validated. Use --allow-unvalidated somente após checkpoint explícito")
+
+    counts = selected_wave_file_counts(wave_ids)
+    selected_overlaps = sorted(path for path, count in counts.items() if count > 1)
+    if selected_overlaps and not allow_overlap:
+        die("as Waves selecionadas compartilham arquivos; use --allow-overlap após checkpoint explícito")
+
     if not allow_overlap:
         check_overlap(wave_ids)
 
@@ -336,9 +444,15 @@ def commit_waves(wave_ids: list[str], message: str | None = None, *, allow_overl
     for wid in wave_ids:
         files = wave_files(wid)
         if not files:
-            die(f"{wid} não tem arquivos registrados; rode `tide wave park {wid}` antes")
+            die(f"{wid} não tem arquivos registrados; rode `tide wave park {wid}` ou `tide wave finish {wid}` antes")
         paths.extend(files)
         titles.append(read_wave(wid).get("title", wid))
+
+    if not allow_snapshot_drift:
+        if selected_overlaps:
+            die("snapshot check não é seguro com Waves selecionadas sobrepondo arquivos; use --allow-snapshot-drift após checkpoint explícito")
+        for wid in wave_ids:
+            validate_snapshot_matches(wid)
 
     for path in sorted(set(paths)):
         run_git(["add", "--", path], capture=True)
@@ -359,9 +473,13 @@ def commit_waves(wave_ids: list[str], message: str | None = None, *, allow_overl
         set_wave_status(wid, "committed", "Commitado pelo supervisor.")
     print(f"ok: commit criado para {ids}")
     print(run_git(["log", "-1", "--oneline"]).stdout.strip())
+    status = run_git(["status", "--short"]).stdout.strip()
+    print("Working tree: limpo" if not status else "Working tree: há mudanças não commitadas")
 
 
 def reject_waves(wave_ids: list[str]) -> None:
+    if index_has_staged_changes():
+        die("há mudanças staged antes do reject. Limpe o índice para evitar reverter em cima de estado ambíguo")
     for wid in wave_ids:
         require_wave_id(wid)
         status = read_wave(wid).get("status")
@@ -407,6 +525,8 @@ def cmd_wave_create(args: argparse.Namespace) -> None:
         "max_files": args.max_files,
         "durability": args.durability or "A mudança deve falhar bem, orientar bem e deixar claro onde ajustar no futuro.",
         "validation_plan": args.validation or "A definir antes de considerar a Wave pronta.",
+        "hardgates": args.hardgate or [],
+        "smart": args.smart or {},
         "files": [],
         "validations": [],
         "result": "Pendente.",
@@ -439,13 +559,22 @@ def cmd_wave_show(args: argparse.Namespace) -> None:
 
 
 def cmd_wave_park(args: argparse.Namespace) -> None:
-    snapshot_wave(args.id, status="parked", note=args.note)
+    wave = read_wave(args.id)
+    if wave.get("status") == "validated" and not args.force:
+        die(f"{args.id} já está validated; não chame park depois de validated. Use --force apenas após checkpoint explícito")
+    snapshot_wave(args.id, status="parked", note=args.note, allow_overbudget=args.allow_overbudget)
     print(f"ok: {args.id} estacionada")
 
 
 def cmd_wave_snapshot(args: argparse.Namespace) -> None:
-    snapshot_wave(args.id, status=args.status, note=args.note)
+    snapshot_wave(args.id, status=args.status, note=args.note, allow_overbudget=args.allow_overbudget)
     print(f"ok: snapshot salvo para {args.id}")
+
+
+def cmd_wave_finish(args: argparse.Namespace) -> None:
+    snapshot_wave(args.id, status="validated", note=args.note or args.summary, allow_overbudget=args.allow_overbudget)
+    append_validation(args.id, summary=args.summary, command=args.command, result=args.result, status="validated")
+    print(f"ok: {args.id} finalizada como validated")
 
 
 def cmd_wave_status(args: argparse.Namespace) -> None:
@@ -478,12 +607,7 @@ def cmd_wave_files(args: argparse.Namespace) -> None:
 
 
 def cmd_wave_validate(args: argparse.Namespace) -> None:
-    wave = read_wave(args.id)
-    validation = {"created_at": now_iso(), "summary": args.summary, "command": args.command, "result": args.result}
-    wave.setdefault("validations", []).append(validation)
-    if args.status:
-        wave["status"] = args.status
-    write_wave_files(wave)
+    append_validation(args.id, summary=args.summary, command=args.command, result=args.result, status=args.status)
     print(f"ok: validação registrada para {args.id}")
 
 
@@ -550,7 +674,13 @@ def discover_script_files(root: Path) -> dict[str, Any]:
 
 def load_catalog(root: Path) -> dict[str, Any]:
     commands: dict[str, Any] = {}
-    for path in [root / ".tide/commands.json", root / ".tide.commands.json", root / "tide.commands.json"]:
+    catalog_paths = [
+        root / ".tide/commands.json",
+        root / ".tide.commands.json",
+        root / "tide.commands.json",
+        root / ".opencode/tide/commands.json",
+    ]
+    for path in catalog_paths:
         if not path.exists():
             continue
         try:
@@ -637,13 +767,6 @@ class RunResult:
 
 
 def run_streaming(command: list[str], *, hard_sec: int, silence_sec: int | None) -> RunResult:
-    """Run a command with a hard timeout.
-
-    v0.4 keeps execution intentionally conservative: when a silence timeout is
-    lower than or equal to the hard timeout, it is used as the effective timeout.
-    Output is inherited from the current process to avoid pipe deadlocks in agent
-    runtimes. A future MCP runner can provide true streaming silence detection.
-    """
     effective_timeout = hard_sec
     silence_guard = bool(silence_sec and silence_sec <= hard_sec)
     if silence_guard:
@@ -679,6 +802,10 @@ def cmd_project_run(args: argparse.Namespace) -> None:
     template = item.get("command")
     if not template:
         die(f"comando sem template executável: {args.name}")
+
+    for key, spec in (item.get("args") or {}).items():
+        if spec.get("required") and key not in values:
+            die(f"argumento obrigatório ausente: {key}")
 
     command_str = render_command_template(template, values)
     timeout = item.get("timeout", {})
@@ -730,9 +857,26 @@ def add_wave_create_parser(subparsers: argparse._SubParsersAction) -> None:
     wc.add_argument("--intent")
     wc.add_argument("--allow", action="append")
     wc.add_argument("--forbid", action="append")
+    wc.add_argument("--hardgate", action="append")
+    wc.add_argument("--smart", default={})
     wc.add_argument("--durability")
     wc.add_argument("--validation")
     wc.set_defaults(func=cmd_wave_create)
+
+
+def add_approve_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("ids", nargs="+")
+    parser.add_argument("-m", "--message")
+    parser.add_argument("--allow-overlap", action="store_true")
+    parser.add_argument("--allow-unvalidated", action="store_true")
+    parser.add_argument("--allow-snapshot-drift", action="store_true")
+    parser.set_defaults(func=lambda args: commit_waves(
+        args.ids,
+        args.message,
+        allow_overlap=args.allow_overlap,
+        allow_unvalidated=args.allow_unvalidated,
+        allow_snapshot_drift=args.allow_snapshot_drift,
+    ))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -744,10 +888,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("waves").set_defaults(func=cmd_wave_list)
 
     approve = sub.add_parser("approve")
-    approve.add_argument("ids", nargs="+")
-    approve.add_argument("-m", "--message")
-    approve.add_argument("--allow-overlap", action="store_true")
-    approve.set_defaults(func=lambda args: commit_waves(args.ids, args.message, allow_overlap=args.allow_overlap))
+    add_approve_args(approve)
 
     reject = sub.add_parser("reject")
     reject.add_argument("ids", nargs="+")
@@ -756,18 +897,21 @@ def build_parser() -> argparse.ArgumentParser:
     park = sub.add_parser("park")
     park.add_argument("id")
     park.add_argument("--note")
+    park.add_argument("--force", action="store_true")
+    park.add_argument("--allow-overbudget", action="store_true")
     park.set_defaults(func=cmd_wave_park)
 
     create_wave = sub.add_parser("create-wave")
     create_wave.add_argument("title")
     create_wave.set_defaults(func=lambda args: cmd_wave_create(argparse.Namespace(
         title=args.title, type="code", risk="unknown", max_files=None, depends_on=[], intent=None,
-        allow=[], forbid=[], durability=None, validation=None,
+        allow=[], forbid=[], hardgate=[], smart={}, durability=None, validation=None,
     )))
 
     snapshot = sub.add_parser("snapshot")
     snapshot.add_argument("id")
-    snapshot.set_defaults(func=lambda args: snapshot_wave(args.id, status="parked"))
+    snapshot.add_argument("--allow-overbudget", action="store_true")
+    snapshot.set_defaults(func=lambda args: snapshot_wave(args.id, status="parked", allow_overbudget=args.allow_overbudget))
 
     wave = sub.add_parser("wave")
     wave_sub = wave.add_subparsers(dest="wave_command")
@@ -785,13 +929,25 @@ def build_parser() -> argparse.ArgumentParser:
     wp = wave_sub.add_parser("park")
     wp.add_argument("id")
     wp.add_argument("--note")
+    wp.add_argument("--force", action="store_true")
+    wp.add_argument("--allow-overbudget", action="store_true")
     wp.set_defaults(func=cmd_wave_park)
 
     wss = wave_sub.add_parser("snapshot")
     wss.add_argument("id")
     wss.add_argument("--status", default="parked", choices=sorted(VALID_STATUSES))
     wss.add_argument("--note")
+    wss.add_argument("--allow-overbudget", action="store_true")
     wss.set_defaults(func=cmd_wave_snapshot)
+
+    wfini = wave_sub.add_parser("finish")
+    wfini.add_argument("id")
+    wfini.add_argument("--summary", required=True)
+    wfini.add_argument("--command")
+    wfini.add_argument("--result", default="passed")
+    wfini.add_argument("--note")
+    wfini.add_argument("--allow-overbudget", action="store_true")
+    wfini.set_defaults(func=cmd_wave_finish)
 
     wst = wave_sub.add_parser("status")
     wst.add_argument("id")
@@ -818,10 +974,7 @@ def build_parser() -> argparse.ArgumentParser:
     wv.set_defaults(func=cmd_wave_validate)
 
     wa = wave_sub.add_parser("approve")
-    wa.add_argument("ids", nargs="+")
-    wa.add_argument("-m", "--message")
-    wa.add_argument("--allow-overlap", action="store_true")
-    wa.set_defaults(func=lambda args: commit_waves(args.ids, args.message, allow_overlap=args.allow_overlap))
+    add_approve_args(wa)
 
     wr = wave_sub.add_parser("reject")
     wr.add_argument("ids", nargs="+")
