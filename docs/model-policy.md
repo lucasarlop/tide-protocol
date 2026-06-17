@@ -2,7 +2,7 @@
 
 O Tide Protocol prioriza qualidade, mas evita usar modelos fortes em tarefas mecânicas.
 
-Perfil recomendado para Lucas: **balanced-quality**.
+Modo padrão recomendado: **balanced-quality dinâmico**.
 
 ## Modelos disponíveis na configuração atual
 
@@ -31,14 +31,28 @@ xhigh
 
 ## Resposta curta
 
-O agente pode estimar dinamicamente o **nível de esforço desejado** (`low`, `medium`, `high`, `xhigh`) com base em risco, complexidade e tipo de tarefa.
+O agente deve estimar dinamicamente o **nível de esforço desejado** (`low`, `medium`, `high`, `xhigh`) com base em risco, complexidade, urgência e tipo de tarefa.
 
-Mas a troca real de modelo/effort depende do que o OpenCode permite no momento:
+A política padrão não é perfil de instalação. É modo operacional:
+
+```txt
+balanced-quality dinâmico
+```
+
+Ou seja:
+
+- qualidade alta por padrão em código;
+- modelo/effort menor em tarefas mecânicas;
+- xhigh quando o erro custa caro;
+- menor número de subagentes quando o risco é baixo;
+- fast mode quando o supervisor priorizar velocidade.
+
+A troca real de modelo/effort depende do que o OpenCode permite no momento:
 
 - se o agente/subagente já estiver pré-configurado com `model`, `variant` ou equivalente, ele usará isso;
 - se não estiver, o subagente tende a herdar o modelo da sessão/agente primário;
-- portanto, o Tide deve decidir o effort desejado e rotear para o subagente/perfil adequado;
-- a automação total de troca de modelo exige perfis ou agentes pré-configurados.
+- portanto, o Tide deve decidir o effort desejado e registrar isso no briefing ao subagente;
+- a automação total de troca de modelo exige IDs reais de modelo confirmados na config do OpenCode.
 
 ## Princípios
 
@@ -48,6 +62,46 @@ Mas a troca real de modelo/effort depende do que o OpenCode permite no momento:
 4. Não economize em segurança, dados, infra e código durável sensível.
 5. Limite steps para evitar loops e custo invisível.
 6. Subagente só deve ser chamado quando agrega valor real.
+7. Modo fast prioriza tempo de resposta, não economia financeira.
+
+## Modo padrão: balanced-quality dinâmico
+
+O Tide deve operar por padrão assim:
+
+```txt
+risco baixo     → fluxo enxuto, poucos subagentes, effort medium/high conforme código
+risco médio     → runner/verifier + reviewer focado quando necessário
+risco alto      → checkpoint prévio + reviewer especializado + effort high/xhigh
+approve/reject  → steward curto, rápido e mecânico
+```
+
+## Modo fast
+
+O supervisor pode pedir explicitamente:
+
+```txt
+modo fast
+use fast
+responda mais rápido
+priorize velocidade
+```
+
+Quando isso acontecer, o Tide deve:
+
+- reduzir investigação ampla;
+- preferir a menor Wave segura;
+- acionar menos reviewers;
+- evitar análise arquitetural longa;
+- usar comandos escopados antes de suites completas;
+- manter hardgates: fast mode nunca autoriza produção, banco, secrets, auth, deploy ou comandos sensíveis sem checkpoint;
+- aceitar gastar mais recurso/modelo rápido se isso reduzir latência;
+- avisar quando fast mode reduziu profundidade de análise.
+
+Fast mode não significa descuido. Significa:
+
+```txt
+mais direto, menos exploração, validação proporcional, hardgates preservados
+```
 
 ## Política por risco
 
@@ -136,9 +190,9 @@ Modelo/effort desejado:
 | `tide-reviewer-data` | GPT-5.5 Pro xhigh ou GPT-5.5 xhigh | Banco, integridade e reprocessamento são críticos. |
 | `tide-reviewer-infra` | GPT-5.5 Pro xhigh ou GPT-5.5 xhigh | Infra/deploy quebram ambiente inteiro. |
 
-## Steps recomendados
+## Steps aplicados
 
-| Agente | steps sugerido |
+| Agente | steps |
 |---|---:|
 | `tide` | 20 |
 | `tide-runner` | 18 |
@@ -164,12 +218,6 @@ Modelo/effort desejado:
 
 ## Configuração futura
 
-O Tide deve oferecer perfis:
+Não há necessidade de perfis de instalação neste momento.
 
-```txt
-balanced-quality  padrão recomendado
-quality           usa high/xhigh em runner/reviewers com mais frequência
-economy           reduz reviewers e usa modelos menores em tarefas mecânicas
-```
-
-Para Lucas, o perfil recomendado é `balanced-quality`, com inclinação para `quality` em código de produção, dados, segurança, infra e bibliotecas compartilhadas.
+O Tide deve operar dinamicamente com `balanced-quality` por padrão. O supervisor pode pedir `modo fast` quando quiser priorizar velocidade. Modos mais específicos, como `economy`, só devem ser criados se houver necessidade real observada em uso.
