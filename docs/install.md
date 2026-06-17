@@ -29,18 +29,24 @@ sem mexer na configuração global padrão:
 ~/.config/opencode/
 ```
 
-Também instala o CLI em:
+Também instala:
 
 ```txt
-~/.local/bin/tide
+~/.local/bin/tide      launcher Tide
+~/.local/bin/tide-cli  CLI operacional real
 ```
 
-Para usar Tide em um projeto específico, abra o OpenCode apontando para a config isolada:
+Para usar Tide em um projeto específico:
 
 ```bash
 cd meu-projeto
-tide init
-OPENCODE_CONFIG_DIR="$HOME/.config/opencode-tide" opencode
+tide opencode
+```
+
+`tide opencode` roda `tide init` por padrão e abre o OpenCode com:
+
+```bash
+OPENCODE_CONFIG_DIR="$HOME/.config/opencode-tide"
 ```
 
 Assim projetos que já usam `opencode-pack` continuam usando a configuração normal quando você roda apenas:
@@ -48,6 +54,41 @@ Assim projetos que já usam `opencode-pack` continuam usando a configuração no
 ```bash
 opencode
 ```
+
+## Usos do launcher
+
+Abrir OpenCode com config isolada e inicializar Waves:
+
+```bash
+tide opencode
+```
+
+Abrir sem rodar `tide init`:
+
+```bash
+tide opencode --no-init
+```
+
+Usar outra config:
+
+```bash
+tide opencode --config-dir "$HOME/.config/opencode-tide-quality"
+```
+
+Alias curto:
+
+```bash
+tide open
+```
+
+Comandos normais continuam funcionando:
+
+```bash
+tide wave list
+tide approve TIDE-0001
+```
+
+Internamente, o launcher delega comandos operacionais para `tide-cli`.
 
 ## Instalação global
 
@@ -69,7 +110,8 @@ opencode/commands -> ~/.config/opencode/commands
 opencode/skills   -> ~/.config/opencode/skills
 opencode/rules    -> ~/.config/opencode/rules/tide
 mcp               -> ~/.config/opencode/tide-mcp
-bin/tide          -> ~/.local/bin/tide
+bin/tide-cli      -> ~/.local/bin/tide-cli
+bin/tide-launcher -> ~/.local/bin/tide
 ```
 
 Sem `--global`, o instalador não escreve em `~/.config/opencode`.
@@ -85,8 +127,7 @@ Em um projeto com instalação isolada:
 
 ```bash
 cd meu-projeto
-tide init
-OPENCODE_CONFIG_DIR="$HOME/.config/opencode-tide" opencode
+tide opencode
 ```
 
 `tide init` cria `.opencode/waves/` e ignora esse diretório localmente via `.git/info/exclude`. Ele não altera `.gitignore`.
@@ -167,6 +208,7 @@ Na instalação isolada, remova:
 ```txt
 ~/.config/opencode-tide
 ~/.local/bin/tide
+~/.local/bin/tide-cli
 ```
 
 Na instalação global, remova:
@@ -178,6 +220,7 @@ Na instalação global, remova:
 ~/.config/opencode/rules/tide
 ~/.config/opencode/tide-mcp
 ~/.local/bin/tide
+~/.local/bin/tide-cli
 ```
 
 Em projetos, o estado local de Waves fica em `.opencode/waves/` e pode ser removido quando não houver Waves pendentes.
