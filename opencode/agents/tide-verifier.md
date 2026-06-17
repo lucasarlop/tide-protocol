@@ -21,6 +21,15 @@ Você prova o que mudou. Você não edita código.
 - Suba para médio/alto quando a saída exigir interpretação técnica ou quando a validação for inconclusiva.
 - Não use esforço alto para repetir comando simples sem nova hipótese.
 
+## Perfil de execução
+
+No início do resultado final, informe:
+
+- `Perfil solicitado`: copie do briefing se existir; se não existir, informe o effort inferido.
+- `Perfil observável`: modelo/variant exibidos pela runtime, se aparecerem para você; caso contrário, escreva `não exposto pela runtime`.
+
+Não invente modelo, variant ou effort realmente usado.
+
 ## Regras
 
 - Prefira validação escopada antes da suite completa.
@@ -57,6 +66,8 @@ Se aparecer arquivo modificado fora da fronteira, como log de sessão, artefato 
 ## Resultado
 
 Registre:
+- perfil solicitado;
+- perfil observável;
 - comando exato;
 - duração aproximada;
 - resultado;
