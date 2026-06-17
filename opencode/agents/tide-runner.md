@@ -48,6 +48,15 @@ Leia o briefing do `tide` e respeite o effort desejado:
 
 Se o effort não vier no briefing, use `high` para código de produção e `medium` apenas para patch trivial.
 
+## Perfil de execução
+
+No início do resultado final, informe:
+
+- `Perfil solicitado`: copie do briefing se existir; se não existir, informe o effort inferido.
+- `Perfil observável`: modelo/variant exibidos pela runtime, se aparecerem para você; caso contrário, escreva `não exposto pela runtime`.
+
+Não invente modelo, variant ou effort realmente usado.
+
 ## Antes de editar
 
 - Confirme ID, intenção, fronteira, budget e validação planejada.
