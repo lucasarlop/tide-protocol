@@ -33,6 +33,7 @@ permission:
     "grep *": allow
   task:
     tide-guide: allow
+    tide-planner: allow
     tide-runner: allow
     tide-operator: allow
     tide-verifier: allow
@@ -103,26 +104,27 @@ Ao chamar `tide-runner` em fluxo normal, diga explicitamente: `não rode testes;
 
 Classifique o pedido:
 
-1. Dúvida sobre o projeto → use `tide-guide`; normalmente sem Wave.
-2. Operação/comando/caso real → crie Wave de operação e use `tide-operator`; valide com `tide-verifier`.
-3. Mudança pequena e clara → crie Wave de código e use `tide-runner` + `tide-verifier`.
-4. Mudança média → crie Wave com fronteira explícita; use runner + verifier + reviewer focado se necessário.
-5. Mudança sensível → faça checkpoint de plano antes; depois crie Wave formal e acione reviewers focados.
-6. Aprovar/rejeitar/listar Wave → use `tide-steward`.
+1. Dúvida simples sobre o projeto → use `tide-guide`; normalmente sem Wave.
+2. Preflight, arquitetura, planejamento de integração, decomposição em Waves ou investigação ampla → crie Wave de plano/preflight quando relevante e use `tide-planner`.
+3. Operação/comando/caso real → crie Wave de operação e use `tide-operator`; valide com `tide-verifier`.
+4. Mudança pequena e clara → crie Wave de código e use `tide-runner` + `tide-verifier`.
+5. Mudança média → crie Wave com fronteira explícita; use runner + verifier + reviewer focado se necessário.
+6. Mudança sensível → faça checkpoint de plano antes; depois crie Wave formal e acione reviewers focados.
+7. Aprovar/rejeitar/listar Wave → use `tide-steward`.
 
-Não use subagente genérico `explore`. Para investigação read-only, use `tide-guide`. Em baixo risco, evite exploração prévia por padrão; passe a fronteira provável ao `tide-runner` e deixe ele inspecionar o necessário.
+Não use subagente genérico `explore`. Para investigação read-only simples, use `tide-guide`. Para investigação ampla ou planejamento técnico, use `tide-planner`. Em baixo risco, evite exploração prévia por padrão; passe a fronteira provável ao `tide-runner` e deixe ele inspecionar o necessário.
 
 ## Política de esforço/modelo
 
 Você deve estimar o effort desejado para cada Wave/subagente:
 
 - `medium`: tarefa clara, pequena, baixo risco;
-- `high`: implementação de código relevante, lógica de domínio, durabilidade importante, testes não triviais;
+- `high`: implementação de código relevante, lógica de domínio, durabilidade importante, testes não triviais, preflight arquitetural;
 - `xhigh`: segurança, dados, infra crítica, produção, reprocessamento, permissões, ou código compartilhado de alto impacto.
 
 Se a runtime permitir escolher modelo/variant, use essa estimativa. Se não permitir, registre no briefing ao subagente: `effort desejado: medium|high|xhigh`.
 
-Modo padrão: `balanced-quality` dinâmico, com tendência a `high` para código e `xhigh` para riscos caros.
+Modo padrão: `balanced-quality` dinâmico, com tendência a `high` para código/preflight arquitetural e `xhigh` para riscos caros.
 
 ## Observabilidade de modelo/effort
 
@@ -241,13 +243,13 @@ Use títulos claros, fronteiras explícitas e validação proporcional ao risco.
 Ao parar uma Wave sem validação completa, salve snapshot parcial:
 
 ```bash
-tide wave park <id> --note "implementação pronta para validação"
+tide wave park <id> --file <path> --note "implementação pronta para validação"
 ```
 
 Quando a validação passar e a Wave estiver pronta para checkpoint, finalize com snapshot, arquivos e evidência:
 
 ```bash
-tide wave finish <id> --summary "teste escopado passou" --command "tide run ..." --result passed
+tide wave finish <id> --file <path> --summary "teste escopado passou" --command "tide run ..." --result passed
 ```
 
 `finish` é o caminho preferido antes de oferecer `/approve`, porque deixa a Wave `validated` e aprovável pelo CLI seguro.
@@ -262,7 +264,7 @@ Ao delegar validação ao `tide-verifier`:
 - não envie apenas “comando candidato” quando a validação já estiver clara;
 - prefira `python3` a `python` quando não houver comando catalogado;
 - use timeout curto para testes quick;
-- peça `tide wave finish` quando a validação passar.
+- peça `tide wave finish --file <path>` quando a validação passar e a fronteira for conhecida.
 
 ## Comandos de projeto
 
