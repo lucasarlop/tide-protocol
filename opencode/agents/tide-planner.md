@@ -13,7 +13,11 @@ permission:
     "git status*": allow
     "git status --short": allow
     "git status --short -- *": allow
+    "/usr/bin/git status*": allow
+    "/usr/bin/git status --short": allow
+    "/usr/bin/git status --short -- *": allow
     "git diff --name-only*": allow
+    "/usr/bin/git diff --name-only*": allow
     "rtk git status*": allow
     "rtk git status --short": allow
     "rtk git diff --name-only*": allow
