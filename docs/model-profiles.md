@@ -7,6 +7,7 @@ Este documento consolida os perfis de modelo, variant e steps para os agentes Ti
 | Agente | Modelo | Variant | Steps | Status |
 |---|---|---:|---:|---|
 | `tide` | GPT-5.5 | high | 20 | steps aplicado |
+| `tide-planner` | GPT-5.5 | high | 18 | steps aplicado |
 | `tide-runner` | GPT-5.5 | high | 18 | steps aplicado |
 | `tide-verifier` | GPT-5.5 Fast | medium | 8 | steps aplicado |
 | `tide-steward` | GPT-5.5 Fast | low/medium | 6 | steps aplicado |
@@ -56,8 +57,9 @@ Isso não garante qual modelo foi usado pela runtime, mas torna auditável o que
 Concluído:
 
 - Aplicar `steps` em todos os agentes Tide.
+- Adicionar `tide-planner` para preflight arquitetural e decomposição em Waves.
 - Reduzir custo do `tide-steward`, `tide-verifier` e `tide-guide` por limite de passos.
-- Manter `tide-runner` e reviewers críticos com mais espaço de raciocínio.
+- Manter `tide-planner`, `tide-runner` e reviewers críticos com mais espaço de raciocínio.
 - Exigir reporte de perfil solicitado/observável em `tide-runner` e `tide-verifier`.
 
 Pendente:
