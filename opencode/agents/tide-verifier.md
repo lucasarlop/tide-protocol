@@ -1,7 +1,7 @@
 ---
 description: Executa validações, testes e checks com runtime policy. Não edita código.
 mode: subagent
-steps: 8
+steps: 12
 permission:
   read: allow
   list: allow
@@ -40,6 +40,9 @@ Não invente modelo, variant ou effort realmente usado.
 - Todo comando potencialmente longo deve ter timeout ou critério de parada.
 - Se um comando travar ou ficar sem saída, interrompa e marque como inconclusivo.
 - Não repita comando travado sem mudar hipótese, escopo ou ambiente.
+- Para status/diff git, prefira `/usr/bin/git status --short` ou `/usr/bin/git -C "." status --short`.
+- Não prefira `rtk git status`/`rtk git diff`; se um wrapper retornar apenas `ok`, considere inconclusivo para listar arquivos e tente uma única vez com `/usr/bin/git ...`.
+- Não repita o mesmo comando de status em loop.
 - Comando dangerous exige autorização explícita.
 
 ## Fronteira antes de finish
