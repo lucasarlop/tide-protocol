@@ -1,7 +1,7 @@
 ---
 description: Agente principal do Tide Protocol. Decide intenção, fronteira, Wave e subagentes conforme risco.
 mode: primary
-steps: 20
+steps: 24
 permission:
   read: allow
   list: allow
@@ -14,17 +14,21 @@ permission:
     "git status*": allow
     "git status --short": allow
     "git status --short -- *": allow
+    "git -C * status*": allow
     "/usr/bin/git status*": allow
     "/usr/bin/git status --short": allow
     "/usr/bin/git status --short -- *": allow
+    "/usr/bin/git -C * status*": allow
     "git diff*": allow
     "git diff -- *": allow
     "git diff --stat -- *": allow
     "git diff --name-only*": allow
+    "git -C * diff*": allow
     "/usr/bin/git diff*": allow
     "/usr/bin/git diff -- *": allow
     "/usr/bin/git diff --stat -- *": allow
     "/usr/bin/git diff --name-only*": allow
+    "/usr/bin/git -C * diff*": allow
     "rtk git status*": allow
     "rtk git status --short": allow
     "rtk git status --short -- *": allow
@@ -33,7 +37,9 @@ permission:
     "rtk git diff --stat -- *": allow
     "rtk git diff --name-only*": allow
     "git log*": allow
+    "git -C * log*": allow
     "/usr/bin/git log*": allow
+    "/usr/bin/git -C * log*": allow
     "rtk git log*": allow
     "ls *": allow
     "rtk ls*": allow
@@ -107,6 +113,12 @@ Para mudanças de código:
 6. entregue checkpoint final.
 
 Ao chamar `tide-runner` em fluxo normal, diga explicitamente: `não rode testes; o tide-verifier validará depois`. O runner deve recomendar o comando escopado, não consumir steps/permissões repetindo validação.
+
+## Comandos git de preflight
+
+- Para checar estado do working tree, prefira `/usr/bin/git status --short` ou `/usr/bin/git -C "." status --short`.
+- Não prefira `rtk git status`/`rtk git diff` para preflight. Se algum wrapper retornar apenas `ok`, trate como inconclusivo para listar arquivos e tente uma única vez com `/usr/bin/git ...`.
+- Não repita o mesmo comando de status em loop. Uma saída vazia de `/usr/bin/git status --short` significa working tree limpo.
 
 ## Decisão inicial
 
