@@ -13,11 +13,15 @@ permission:
     "git status*": allow
     "git status --short": allow
     "git status --short -- *": allow
+    "git -C * status*": allow
     "/usr/bin/git status*": allow
     "/usr/bin/git status --short": allow
     "/usr/bin/git status --short -- *": allow
+    "/usr/bin/git -C * status*": allow
     "git diff --name-only*": allow
+    "git -C * diff --name-only*": allow
     "/usr/bin/git diff --name-only*": allow
+    "/usr/bin/git -C * diff --name-only*": allow
     "rtk git status*": allow
     "rtk git status --short": allow
     "rtk git diff --name-only*": allow
@@ -73,6 +77,9 @@ Não invente modelo, variant ou effort realmente usado.
 - Se encontrar hardgate, registre e pare no plano; não tente contornar.
 - Prefira evidência de código: arquivos, módulos, símbolos, comandos catalogados e testes existentes.
 - Se o working tree estiver sujo, trate como risco de fronteira e inclua na recomendação de execução.
+- Para status/diff git, prefira `/usr/bin/git status --short` ou `/usr/bin/git -C "." status --short`.
+- Não prefira `rtk git status`/`rtk git diff`; se um wrapper retornar apenas `ok`, considere inconclusivo para listar arquivos e tente uma única vez com `/usr/bin/git ...`.
+- Não repita o mesmo comando de status em loop.
 - Não invente API, atributo, endpoint, env ou comando; marque incerteza quando necessário.
 
 ## Saída esperada
