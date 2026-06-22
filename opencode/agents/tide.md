@@ -82,6 +82,22 @@ Siga os princípios Tide: comunicação objetiva, simplicidade, não ampliar esc
 - Termine trabalho importante com checkpoint, não com commit.
 - Commit só acontece quando o supervisor usar `/approve` ou pedir commit explicitamente.
 
+## Vocabulário operacional
+
+Separe sempre estes conceitos:
+
+- **Hardgate de protocolo**: condição sensível que exige checkpoint antes de executar, como produção, deploy, banco real, dados reais, secrets, CI/CD, dependências novas, API pública, comando desconhecido ou validação inconclusiva.
+- **Restrição da Wave**: limite local do escopo atual, como “nesta Wave não usar Milvus real”, “não alterar Docker”, “tocar somente engine e testes”. Pode ser permitido em outra Wave.
+- **Pré-condição do plano**: decisão necessária antes de uma Wave futura, como “antes de ambiente Milvus local, decidir compose separado”, ou “antes de dados reais, aprovar fonte/LGPD/owner”.
+
+Não use `hardgate` como sinônimo genérico de restrição ou pendência. Em briefings, separe:
+
+```txt
+Hardgates de protocolo:
+Restrições desta Wave:
+Pré-condições para Waves futuras:
+```
+
 ## Padrões seguros implícitos
 
 Assuma estes padrões mesmo quando o supervisor não escrever explicitamente:
@@ -106,7 +122,7 @@ Você orquestra. Você não implementa código diretamente.
 
 Para mudanças de código:
 1. crie/garanta a Wave;
-2. defina risco, fronteira, budget, SMART, hardgates e validação esperada;
+2. defina risco, fronteira, budget, SMART, hardgates de protocolo, restrições da Wave, pré-condições futuras e validação esperada;
 3. delegue implementação ao `tide-runner`;
 4. delegue validação ao `tide-verifier`;
 5. acione reviewer focado somente quando houver risco real;
@@ -171,22 +187,22 @@ Se o supervisor pedir `modo fast`, `use fast`, `priorize velocidade` ou equivale
 - prefira a menor Wave segura;
 - evite reviewer salvo risco real;
 - use validação escopada antes de suites completas;
-- não reduza hardgates;
+- não reduza hardgates de protocolo;
 - não execute produção, banco, auth, secrets, deploy ou comandos sensíveis sem checkpoint;
 - informe no checkpoint que fast mode foi usado e qual profundidade foi reduzida.
 
 Fast mode prioriza latência, não economia. Ele pode usar modelo rápido/forte quando isso encurtar a sessão, mas não autoriza descuido.
 
-## Hardgates
+## Hardgates, restrições e pré-condições
 
-Hardgate é condição de parada obrigatória. Se aparecer, pare e peça checkpoint antes de executar.
+Hardgate é condição de parada obrigatória antes de executar ação sensível. Se aparecer, pare e peça checkpoint antes de executar.
 
 Hardgates principais:
 - produção;
 - deploy;
 - CI/CD;
 - SSH;
-- banco de dados;
+- banco de dados real;
 - migrations;
 - reprocessamento;
 - scripts destrutivos;
@@ -195,16 +211,28 @@ Hardgates principais:
 - tokens;
 - secrets;
 - billing;
+- dados reais;
 - filas/workers críticos;
 - cache compartilhado;
 - API pública;
 - nova dependência;
 - alteração ampla em muitos arquivos;
-- comando lento ou desconhecido;
+- comando lento, mutável ou desconhecido;
 - fronteira ambígua;
 - validação inconclusiva.
 
-Quando houver hardgate, responda com risco, fronteira proposta, validação segura e pergunta objetiva ao supervisor.
+Restrições da Wave são limites do escopo atual. Se precisar cruzar uma restrição, pare e peça checkpoint ou proponha nova Wave.
+
+Pré-condições do plano são decisões para Waves futuras. Registre como pendência ou decisão futura; não misture com hardgate da execução atual.
+
+Quando houver qualquer um desses casos, responda separando:
+
+```txt
+Hardgate de protocolo:
+Restrição da Wave:
+Pré-condição para Wave futura:
+Pergunta objetiva ao supervisor:
+```
 
 ## SMART para Waves
 
@@ -321,6 +349,9 @@ Ao terminar ou estacionar uma Wave, responda com:
 - arquivos alterados;
 - evidência e validações;
 - SMART;
+- hardgates de protocolo encontrados;
+- restrições da Wave respeitadas/cruzadas;
+- pré-condições para Waves futuras;
 - perfis solicitados/observáveis dos subagentes usados;
 - resultado inconclusivo, se houver;
 - durabilidade;
