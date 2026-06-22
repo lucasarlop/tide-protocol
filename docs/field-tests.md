@@ -112,6 +112,50 @@ Próxima otimização técnica recomendada:
 
 - mover a regra de fronteira para o CLI: `tide wave finish --file ...` ou finish por arquivos permitidos, reduzindo dependência de prompt.
 
+## TIDE-0037 — Milvus planning/contract sessions
+
+Status: aprovado com ajustes de protocolo aplicados depois do teste.
+
+Resumo:
+
+- `tide-planner` foi usado corretamente para plano/contrato Milvus.
+- `TIDE-0004` registrou decisões iniciais em `docs/milvus-embeddings-plan.md`.
+- O CLI bloqueou `finish` quando `session-ses_1246.md` apareceu fora da fronteira.
+- Após decisão do supervisor, o artefato local foi removido.
+- `tide wave finish --file docs/milvus-embeddings-plan.md` deixou a Wave `validated`.
+- `/approve TIDE-0004` criou commit `cb6be23` e deixou working tree limpo.
+
+O que funcionou:
+
+- Wave de contrato não implementou código.
+- Fronteira por `--file` funcionou.
+- Arquivo fora da fronteira bloqueou snapshot misturado.
+- Steward aprovou com commit curto e sem push.
+
+Problemas observados:
+
+1. O agente repetiu `rtk git status --short`, que retornava apenas `ok`, consumindo steps sem dar lista real de arquivos.
+2. A allowlist ainda não aceitava variações como `git -C "." status --short`.
+3. Wave documental foi criada sem `--allow docs/...`, deixando a fronteira menos explícita no `tide wave show`.
+4. Artefatos de sessão `session-ses_*.md` apareceram no working tree e bloquearam `finish`, como esperado, mas o protocolo precisava orientar limpeza/decisão mais diretamente.
+5. O verifier tinha steps apertados para fluxos com revisão documental e tentativa de finish.
+
+Ajustes aplicados:
+
+- `tide`, `tide-planner`, `tide-runner` e `tide-verifier` agora preferem `/usr/bin/git status --short` e evitam loop com `rtk git status` retornando apenas `ok`.
+- Allowlist aceita `git -C * status*` e variantes absolutas.
+- `tide-verifier` recebeu mais steps.
+- `tide-wave` agora documenta Waves documentais: usar `--max-files 1` e `--allow <doc>` quando houver artefato versionado.
+- `tide-wave` explicita que `session-ses_*.md` e logs locais são artefatos fora da Wave por padrão.
+- `tide-runner` foi alinhado para não tocar em artefatos locais fora da fronteira.
+
+Próximo teste:
+
+- Iniciar uma Wave documental já com `--allow docs/<arquivo>.md`.
+- Confirmar que `tide wave show` mostra fronteira explícita.
+- Confirmar que `rtk git status` não é repetido em loop.
+- Confirmar que `session-ses_*.md` é tratado como artefato local fora da Wave antes de `finish`.
+
 ## Próximo field test sugerido — permission/runner ergonomics
 
 Objetivo: confirmar que o runner não pede permissão desnecessária nem roda teste que o verifier vai repetir.
