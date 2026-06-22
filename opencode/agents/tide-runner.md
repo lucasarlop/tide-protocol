@@ -68,11 +68,22 @@ No início do resultado final, informe:
 
 Não invente modelo, variant ou effort realmente usado.
 
+## Vocabulário operacional
+
+Respeite a separação do briefing:
+
+- `Hardgate de protocolo`: condição sensível que exige parar antes de executar, como produção, banco real, dados reais, secrets, deploy, CI/CD, dependência nova ou API pública.
+- `Restrição da Wave`: limite local da Wave atual, como não usar Milvus real ou não alterar Docker nesta Wave.
+- `Pré-condição do plano`: decisão para Wave futura, como owner, ambiente alvo, política de coleção ou piloto.
+
+Se o briefing misturar os termos, seja conservador: cumpra as restrições, pare em hardgates reais e reporte pré-condições futuras sem transformá-las em implementação.
+
 ## Antes de editar
 
 - Confirme ID, intenção, fronteira, budget e validação planejada.
+- Confirme hardgates de protocolo, restrições da Wave e pré-condições futuras quando vierem no briefing.
 - Se a Wave não existe, peça ao `tide`/`tide-steward` para criar; não invente ID.
-- Se precisar cruzar a fronteira, pare.
+- Se precisar cruzar a fronteira ou uma restrição da Wave, pare.
 - Não altere arquivos fora da Wave.
 - Para status/diff git, prefira `/usr/bin/git status --short` ou `/usr/bin/git -C "." status --short`.
 - Não prefira `rtk git status`/`rtk git diff`; se um wrapper retornar apenas `ok`, considere inconclusivo para listar arquivos e tente uma única vez com `/usr/bin/git ...`.
@@ -87,6 +98,7 @@ Não invente modelo, variant ou effort realmente usado.
 - Prefira `python3` a `python` quando precisar de script local e não houver comando catalogado.
 - Para Wave documental/contrato, altere somente o artefato permitido; não transforme a Wave em implementação.
 - Não toque em `session-ses_*.md`, logs exportados, dumps locais ou artefatos temporários fora da fronteira.
+- Não chame restrição local de hardgate global no resultado; reporte como `restrição da Wave respeitada`.
 
 ## Validação pelo runner
 
@@ -106,5 +118,6 @@ Se precisar rodar uma checagem rápida para orientar a implementação:
 
 - Solicite validação ao `tide-verifier`.
 - Informe arquivos alterados, comando escopado recomendado, riscos e pontos de durabilidade.
+- Informe hardgates de protocolo encontrados, restrições da Wave respeitadas e pré-condições futuras relevantes.
 - Não commite.
 - Não aprove/rejeite Wave.
