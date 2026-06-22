@@ -14,7 +14,7 @@ Use esta skill para qualquer tarefa relevante que deva virar uma Wave.
 Antes de criar uma Wave em projeto real, confira o working tree:
 
 ```bash
-git status --short
+/usr/bin/git status --short
 ```
 
 Se houver arquivos modificados antes da Wave:
@@ -24,7 +24,10 @@ Se houver arquivos modificados antes da Wave:
 - peça decisão do supervisor: limpar, continuar como Wave empilhada, criar Wave separada, ou restringir explicitamente a fronteira;
 - só continue sem perguntar quando o supervisor já tiver dito que o estado sujo é esperado e qual fronteira deve ser considerada.
 
+Não use `rtk git status` como fonte primária de preflight. Se um wrapper retornar apenas `ok`, trate como inconclusivo para listar arquivos e use `/usr/bin/git status --short` uma única vez.
+
 ## Wave mínima
+
 Toda Wave deve ter:
 - ID `TIDE-000N`;
 - intenção;
@@ -33,6 +36,37 @@ Toda Wave deve ter:
 - validação planejada;
 - evidência;
 - checkpoint.
+
+## Wave documental ou de decisão
+
+Quando a Wave for de planejamento, contrato ou documentação e existir chance de gerar artefato versionado:
+
+- crie a Wave com `--max-files 1` ou outro limite realista;
+- declare a fronteira na criação com `--allow <arquivo-doc>` quando o arquivo já for conhecido;
+- não use `--max-files 0` se depois pretende registrar documento no Git;
+- se a Wave for apenas checkpoint conversacional, não ofereça `/approve`.
+
+Exemplo:
+
+```bash
+tide wave create \
+  --title "Milvus Wave 1: decisões e contrato semântico" \
+  --type plan \
+  --risk medium \
+  --max-files 1 \
+  --allow docs/milvus-embeddings-plan.md
+```
+
+## Artefatos locais fora da Wave
+
+Arquivos como `session-ses_*.md`, logs exportados, relatórios temporários e dumps locais não pertencem à Wave por padrão.
+
+Se aparecerem no working tree:
+
+- trate como sujeira fora da fronteira;
+- não inclua no snapshot sem decisão explícita;
+- prefira limpar/remover se forem apenas artefatos locais descartáveis;
+- não use `--allow-outside-boundary` para esconder esse problema sem checkpoint.
 
 ## Fronteira suja
 
