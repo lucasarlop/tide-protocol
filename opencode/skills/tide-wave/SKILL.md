@@ -26,6 +26,16 @@ Se houver arquivos modificados antes da Wave:
 
 Não use `rtk git status` como fonte primária de preflight. Se um wrapper retornar apenas `ok`, trate como inconclusivo para listar arquivos e use `/usr/bin/git status --short` uma única vez.
 
+## Conceitos de parada e escopo
+
+Separe sempre:
+
+- **Hardgate de protocolo**: condição sensível que exige checkpoint antes de executar, como produção, deploy, banco real, dados reais, secrets, CI/CD, dependência nova, API pública, comando desconhecido ou validação inconclusiva.
+- **Restrição da Wave**: limite local da Wave atual, como “não usar Milvus real nesta Wave”, “não alterar Docker”, “tocar somente arquivos X e Y”.
+- **Pré-condição do plano**: decisão necessária antes de uma Wave futura, como ambiente alvo, owner, política de coleção, piloto ou produção.
+
+Não chame toda pendência ou restrição de `hardgate`. Em checkpoints, prefira listar os três grupos separadamente.
+
 ## Wave mínima
 
 Toda Wave deve ter:
@@ -100,6 +110,7 @@ Quando a validação passar e a Wave estiver pronta para checkpoint:
 Ao concluir:
 - informe arquivos alterados;
 - informe validações;
+- liste hardgates de protocolo, restrições da Wave e pré-condições futuras quando existirem;
 - liste riscos/restos;
 - ofereça opções: continuar, ajustar, acumular, `/approve <id>` ou `/reject <id>`.
 
