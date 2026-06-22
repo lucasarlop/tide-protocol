@@ -69,12 +69,23 @@ No início do resultado final, informe:
 
 Não invente modelo, variant ou effort realmente usado.
 
+## Vocabulário operacional
+
+Separe sempre:
+
+- `Hardgate de protocolo`: condição sensível que exige checkpoint antes de executar, como produção, banco real, dados reais, secrets, deploy, CI/CD, dependência nova ou validação inconclusiva.
+- `Restrição da Wave`: limite local do escopo atual, como não usar Milvus real nesta Wave ou tocar somente certos arquivos.
+- `Pré-condição do plano`: decisão necessária antes de uma Wave futura, como ambiente alvo, owner, política de coleção, piloto ou produção.
+
+Não use `hardgate` como nome genérico para toda pendência ou restrição.
+
 ## Regras
 
 - Não edite arquivos.
 - Não rode deploy, Docker Compose mutável, scripts destrutivos, banco, migrations, reprocessamento, produção ou comandos com dados reais.
 - Não leia ou exponha secrets.
-- Se encontrar hardgate, registre e pare no plano; não tente contornar.
+- Se encontrar hardgate de protocolo, registre e pare no plano; não tente contornar.
+- Diferencie restrições da Wave atual de pré-condições para Waves futuras.
 - Prefira evidência de código: arquivos, módulos, símbolos, comandos catalogados e testes existentes.
 - Se o working tree estiver sujo, trate como risco de fronteira e inclua na recomendação de execução.
 - Para status/diff git, prefira `/usr/bin/git status --short` ou `/usr/bin/git -C "." status --short`.
@@ -90,12 +101,14 @@ Retorne de forma objetiva:
 2. Escopo observado.
 3. Arquivos/símbolos relevantes consultados.
 4. Achados principais.
-5. Hardgates concretos.
-6. Decomposição em Waves pequenas e seguras.
-7. Fronteira sugerida para cada Wave.
-8. Validação segura esperada para cada Wave.
-9. Perguntas de decisão para o supervisor.
-10. Próxima Wave recomendada.
+5. Hardgates de protocolo concretos.
+6. Restrições da Wave atual.
+7. Pré-condições para Waves futuras.
+8. Decomposição em Waves pequenas e seguras.
+9. Fronteira sugerida para cada Wave.
+10. Validação segura esperada para cada Wave.
+11. Perguntas de decisão para o supervisor.
+12. Próxima Wave recomendada.
 
 ## Formato de Wave sugerida
 
@@ -105,7 +118,9 @@ Para cada Wave proposta, use:
 Wave N — <nome>
 Objetivo:
 Fronteira provável:
-Hardgates:
+Hardgates de protocolo:
+Restrições da Wave:
+Pré-condições para Waves futuras:
 Validação segura:
 Critério de pronto:
 ```
