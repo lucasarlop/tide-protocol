@@ -6,6 +6,16 @@ A regra geral é: **prompt orienta; agente decide; CLI garante**.
 
 Se uma regra evita perda de dados, commit misturado, snapshot errado, deploy acidental ou alteração fora da fronteira, ela deve existir como hardgate no CLI ou em comando seguro equivalente. Prompt sozinho não é garantia.
 
+## Vocabulário de risco e escopo
+
+Antes de distribuir responsabilidades, use nomes precisos:
+
+- **Hardgate de protocolo**: condição sensível que exige checkpoint antes de executar, como produção, banco real, dados reais, secrets, deploy, CI/CD, dependência nova, API pública, comando desconhecido ou validação inconclusiva.
+- **Restrição da Wave**: limite local da Wave atual, como “não usar Milvus real nesta Wave”, “não alterar Docker” ou “tocar somente engine e testes”. Pode ser permitido em outra Wave.
+- **Pré-condição do plano**: decisão necessária antes de uma Wave futura, como ambiente alvo, owner, política de coleção, piloto ou produção.
+
+Agentes devem reportar esses grupos separadamente. O CLI só garante mecanicamente o que consegue observar.
+
 ## Camadas
 
 ### 1. CLI — garantias mecânicas
@@ -37,6 +47,8 @@ Hardgates que devem estar no CLI, não só em prompt:
 - snapshot drift antes de approve;
 - overlap entre Waves.
 
+O CLI não consegue garantir sozinho coisas como “não acessou Milvus real”, “não acessou Trino real” ou “não usou dados reais”. Esses pontos devem ser controlados por permissões, catálogo de comandos, validação e supervisão.
+
 ### 2. Agente principal `tide` — orquestração
 
 O agente principal deve:
@@ -44,7 +56,7 @@ O agente principal deve:
 - classificar intenção e risco;
 - criar ou solicitar criação de Wave;
 - fazer preflight de working tree antes de criar Wave em projeto real;
-- definir fronteira, budget, SMART, validação esperada e hardgates;
+- definir fronteira, budget, SMART, validação esperada, hardgates de protocolo, restrições da Wave e pré-condições futuras;
 - delegar implementação ao `tide-runner`;
 - delegar validação ao `tide-verifier`;
 - acionar reviewers apenas quando há risco real;
@@ -54,19 +66,33 @@ O agente principal deve:
 
 O `tide` pode orientar, mas não deve ser a única camada de segurança para fronteira/commit/snapshot.
 
-### 3. `tide-runner` — implementação
+### 3. `tide-planner` — planejamento/preflight
+
+O planner deve:
+
+- investigar sem editar;
+- separar hardgates de protocolo, restrições da Wave e pré-condições do plano;
+- propor Waves pequenas;
+- identificar fronteiras e validações seguras;
+- não transformar pré-condição futura em implementação atual;
+- não chamar qualquer pendência genérica de hardgate.
+
+### 4. `tide-runner` — implementação
 
 O runner deve:
 
 - editar código dentro da fronteira;
 - fazer a menor mudança segura;
 - não tocar fora da Wave;
+- respeitar restrições da Wave;
+- parar antes de hardgate de protocolo;
+- reportar pré-condições futuras sem implementá-las;
 - não rodar testes quando o verifier validará depois;
 - informar arquivos alterados e comando escopado recomendado;
 - informar perfil solicitado/observável;
 - não commitar, aprovar, rejeitar ou finalizar Wave.
 
-### 4. `tide-verifier` — evidência
+### 5. `tide-verifier` — evidência
 
 O verifier deve:
 
@@ -79,9 +105,9 @@ O verifier deve:
 - reportar resultado inconclusivo quando comando/teste estiver errado;
 - informar perfil solicitado/observável.
 
-Enquanto o CLI não tiver hardgate completo de fronteira, o verifier deve ser conservador e bloquear `finish` ao detectar arquivo fora da fronteira.
+O verifier não deve mascarar comando inconclusivo como sucesso. Se a validação só passa com preparo de ambiente explícito, o comando salvo em `finish` deve incluir esse preparo.
 
-### 5. `tide-steward` — decisão supervisionada
+### 6. `tide-steward` — decisão supervisionada
 
 O steward deve:
 
@@ -93,11 +119,9 @@ O steward deve:
 - não fazer push;
 - reportar commit/status/working tree.
 
-## Problema atual: fronteira ainda depende demais dos agentes
+## Fronteira no CLI — status atual
 
-No CLI atual, `snapshot_wave()` detecta todos os arquivos sujos e monta patch de todo o working tree. Isso é útil para demo simples, mas perigoso em projeto real com mudanças pré-existentes.
-
-Comportamento desejado:
+O CLI já suporta snapshot por fronteira explícita:
 
 ```bash
 tide wave finish TIDE-0001 \
@@ -107,7 +131,7 @@ tide wave finish TIDE-0001 \
   --result passed
 ```
 
-Ou, quando a Wave tiver `allowed` claro:
+Ou por fronteira planejada na criação:
 
 ```bash
 tide wave create \
@@ -118,7 +142,7 @@ tide wave create \
 tide wave finish TIDE-0001 --summary "..." --command "..." --result passed
 ```
 
-O CLI deve:
+O CLI deve e já tende a:
 
 1. calcular arquivos sujos atuais;
 2. calcular fronteira permitida (`--file` explícito ou `wave.allowed`);
@@ -138,12 +162,12 @@ Overrides podem existir, mas devem ter nome assustador e exigir checkpoint claro
 
 O padrão deve ser seguro.
 
-## Status recomendado antes de novos testes reais
+## Próxima melhoria técnica recomendada
 
-Antes de avançar em projeto real, implementar no CLI:
+O CLI armazena campos como `hardgates`, `allowed`, `forbidden`, `smart` e metadados de fronteira, mas a apresentação humana ainda pode melhorar.
 
-- `tide wave finish --file <path>`;
-- snapshot filtrado por arquivos;
-- bloqueio de arquivos sujos fora da fronteira;
-- testes unitários cobrindo dirty tree fora da Wave;
-- documentação no supervisor manual.
+Próximo ajuste recomendado:
+
+- renderizar hardgates/restrições/SMART/metadados de fronteira em `tide wave show`;
+- incentivar criação de Waves com `--allow` sempre que a fronteira provável for conhecida;
+- criar comandos auxiliares ou templates para Waves documentais e Waves de código comuns.
