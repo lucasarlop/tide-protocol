@@ -51,6 +51,7 @@ permission:
     tide-runner: allow
     tide-operator: allow
     tide-verifier: allow
+    tide-code-report: allow
     tide-steward: allow
     tide-reviewer-durability: allow
     tide-reviewer-simplicity: allow
@@ -126,9 +127,21 @@ Para mudanças de código:
 3. delegue implementação ao `tide-runner`;
 4. delegue validação ao `tide-verifier`;
 5. acione reviewer focado somente quando houver risco real;
-6. entregue checkpoint final.
+6. chame `tide-code-report` quando a Wave tiver impacto relevante;
+7. entregue checkpoint final ao supervisor com base no relatório.
 
 Ao chamar `tide-runner` em fluxo normal, diga explicitamente: `não rode testes; o tide-verifier validará depois`. O runner deve recomendar o comando escopado, não consumir steps/permissões repetindo validação.
+
+## Outputs intermediários
+
+Agentes intermediários devem produzir evidência compacta, não relatório final para o supervisor.
+
+- `tide-runner`: deve retornar um `EVIDENCE_PACKET` curto com arquivos, resumo, riscos e comando recomendado.
+- `tide-verifier`: deve retornar um `EVIDENCE_PACKET` curto com comandos, resultados, evidência, lacunas e finish.
+- reviewers: devem retornar achados acionáveis e severidade, não narrativas longas.
+- `tide-code-report`: consolida tudo em relatório final humano.
+
+Não repita para o supervisor os outputs completos do runner/verifier quando `tide-code-report` for chamado. Use o relatório como fonte principal do checkpoint.
 
 ## Comandos git de preflight
 
@@ -314,6 +327,23 @@ Ao delegar validação ao `tide-verifier`:
 - use timeout curto para testes quick;
 - peça `tide wave finish --file <path>` quando a validação passar e a fronteira for conhecida.
 
+## Code report
+
+Chame `tide-code-report` antes do checkpoint final quando a Wave envolver qualquer um destes casos:
+
+- Wave de código validada ou pronta para checkpoint;
+- mais de um arquivo alterado;
+- risco `medium`, `high` ou `xhigh`;
+- alteração em config, infra, dados, auth, API, dependências ou operação;
+- teste falhou ou validação ficou inconclusiva;
+- houve reviewer;
+- operação/smoke com evidência relevante;
+- supervisor pediu relatório.
+
+Forneça ao `tide-code-report` os evidence packets recebidos, ID/título da Wave, briefing original, status real, validações e restrições relevantes.
+
+Para Waves triviais de documentação/typo, pule o relatório salvo se o supervisor pedir.
+
 ## Comandos de projeto
 
 Para comandos específicos do projeto, prefira o catálogo Tide:
@@ -341,21 +371,13 @@ Antes do resumo final, consulte o status real:
 tide wave status <id>
 ```
 
+Se `tide-code-report` foi chamado, use o relatório como base do checkpoint e não repita outputs intermediários completos.
+
 Ao terminar ou estacionar uma Wave, responda com:
 
 - Wave: `<id> — <título>`;
 - status real;
-- movimento feito;
-- arquivos alterados;
-- evidência e validações;
-- SMART;
-- hardgates de protocolo encontrados;
-- restrições da Wave respeitadas/cruzadas;
-- pré-condições para Waves futuras;
-- perfis solicitados/observáveis dos subagentes usados;
-- resultado inconclusivo, se houver;
-- durabilidade;
-- riscos/restos;
-- fast mode usado, se aplicável;
+- relatório do `tide-code-report`, quando usado;
+- resumo mínimo de movimento feito, se o relatório não foi usado;
 - se a Wave está pronta para `/approve` ou ainda precisa de `finish`/snapshot;
 - opções: continuar, ajustar, estacionar, acumular, `/reject <id>`, `/approve <id>` somente se a Wave estiver `validated` e com snapshot salvo.
