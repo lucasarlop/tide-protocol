@@ -105,9 +105,11 @@ Quando a validação passar e a Wave estiver pronta para checkpoint:
 - use `tide wave finish <id> --file <path> --summary "..." --command "..." --result passed` quando a fronteira for conhecida;
 - isso salva snapshot, arquivos, evidência e status `validated`;
 - confirme o status real com `tide wave status <id>`;
+- chame `tide-code-report` quando a Wave for de código, operação, risco médio/alto ou tiver mais de um arquivo;
 - só então ofereça `/approve <id>` ou `/reject <id>`.
 
 Ao concluir:
+- use o relatório do `tide-code-report` quando ele existir;
 - informe arquivos alterados;
 - informe validações;
 - liste hardgates de protocolo, restrições da Wave e pré-condições futuras quando existirem;
