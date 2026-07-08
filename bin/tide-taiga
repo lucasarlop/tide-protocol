@@ -61,6 +61,12 @@ def has_command(name: str) -> bool:
     return which(name) is not None
 
 
+def read_stdin_text(label: str) -> str:
+    if sys.stdin.isatty():
+        die(f"{label} por stdin solicitado, mas stdin está vazio")
+    return sys.stdin.read()
+
+
 def read_json(path: Path, default: Any | None = None) -> Any:
     if not path.exists():
         if default is not None:
@@ -379,10 +385,7 @@ def cmd_show(_args: argparse.Namespace) -> None:
 
 def cmd_logout(_args: argparse.Namespace) -> None:
     config = load_config(False)
-    if config.get("token_storage") == "macos-keychain" and keychain_available():
-        subprocess.call(["security", "delete-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if LOCAL_TOKEN_FILE.exists():
-        LOCAL_TOKEN_FILE.unlink()
+    delete_token(config)
     if CONFIG_FILE.exists():
         CONFIG_FILE.unlink()
     print("Taiga removido da configuração local")
@@ -424,7 +427,12 @@ def cmd_create(args: argparse.Namespace) -> None:
     c = client()
     canonical = canonical_kind(args.kind)
     project_id = c.project_id(args.project_id)
-    description = Path(args.description_file).read_text(encoding="utf-8") if args.description_file else (args.description or "")
+    if args.description_stdin:
+        description = read_stdin_text("descrição")
+    elif args.description_file:
+        description = Path(args.description_file).read_text(encoding="utf-8")
+    else:
+        description = args.description or ""
     payload: dict[str, Any] = {"project": project_id, "subject": args.subject, "description": description, "tags": args.tag or []}
     if canonical == "tasks" and args.userstory_ref:
         payload["user_story"] = c.resolve_ref("userstory", args.userstory_ref, project_id)["id"]
@@ -437,7 +445,12 @@ def cmd_create(args: argparse.Namespace) -> None:
 
 def cmd_comment(args: argparse.Namespace) -> None:
     require_yes(args, "comment")
-    text = Path(args.text_file).read_text(encoding="utf-8") if args.text_file else (args.text or "")
+    if args.text_stdin:
+        text = read_stdin_text("comentário")
+    elif args.text_file:
+        text = Path(args.text_file).read_text(encoding="utf-8")
+    else:
+        text = args.text or ""
     if not text.strip():
         die("comentário vazio")
     c = client()
@@ -455,10 +468,12 @@ def cmd_update(args: argparse.Namespace) -> None:
     payload: dict[str, Any] = {}
     if args.subject:
         payload["subject"] = args.subject
-    if args.description is not None:
-        payload["description"] = args.description
-    if args.description_file:
+    if args.description_stdin:
+        payload["description"] = read_stdin_text("descrição")
+    elif args.description_file:
         payload["description"] = Path(args.description_file).read_text(encoding="utf-8")
+    elif args.description is not None:
+        payload["description"] = args.description
     if args.status:
         payload["status"] = c.resolve_status(canonical, args.status, project_id)
     if args.assigned_to:
@@ -593,9 +608,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("members"); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_members)
     p = sub.add_parser("get"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_get)
     p = sub.add_parser("list"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_list)
-    p = sub.add_parser("create"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--tag", action="append"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_create)
-    p = sub.add_parser("comment"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_comment)
-    p = sub.add_parser("update"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_update)
+    p = sub.add_parser("create"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--tag", action="append"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_create)
+    p = sub.add_parser("comment"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_comment)
+    p = sub.add_parser("update"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_update)
     p = sub.add_parser("maturity"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_maturity)
     p = sub.add_parser("link"); p.add_argument("wave"); p.add_argument("--ref", type=int, required=True); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--created-by-tide", action="store_true"); p.add_argument("--no-auto-sync", action="store_true"); p.set_defaults(func=cmd_link)
     p = sub.add_parser("sync"); p.add_argument("wave"); p.add_argument("--ref", type=int); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--text"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_sync)
