@@ -2,7 +2,7 @@
 """Tide launcher installed as `tide`.
 
 Delegates regular commands to `tide-cli` and provides convenience commands such as
-`tide opencode` and `tide doctor`.
+`tide opencode`, `tide doctor` and `tide update`.
 """
 from __future__ import annotations
 
@@ -13,24 +13,60 @@ import sys
 from pathlib import Path
 
 FALLBACK_CONFIG_DIR = Path.home() / ".config" / "opencode-tide"
+DEFAULT_GLOBAL_CONFIG_DIR = Path.home() / ".config" / "opencode"
 
 
 def launcher_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def config_file_path() -> Path:
+    return launcher_dir() / "tide.config"
+
+
+def read_launcher_config() -> dict[str, str]:
+    """Read tide.config.
+
+    Supports the old one-line format that only stored the config dir and the new
+    key=value format used by `tide update`.
+    """
+    path = config_file_path()
+    try:
+        if not path.exists():
+            return {}
+        raw = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return {}
+
+    if not raw:
+        return {}
+
+    lines = [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
+    if not lines:
+        return {}
+
+    if all("=" not in line for line in lines):
+        return {"config_dir": lines[0]}
+
+    data: dict[str, str] = {}
+    for line in lines:
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if key:
+            data[key] = value
+    return data
+
+
 def default_config_dir() -> str:
     explicit = os.environ.get("TIDE_CONFIG_DIR")
     if explicit:
         return explicit
-    config_file = launcher_dir() / "tide.config"
-    try:
-        if config_file.exists():
-            configured = config_file.read_text(encoding="utf-8").strip()
-            if configured:
-                return configured
-    except OSError:
-        pass
+    configured = read_launcher_config().get("config_dir")
+    if configured:
+        return configured
     return str(FALLBACK_CONFIG_DIR)
 
 
@@ -119,10 +155,15 @@ def parse_doctor_args(args: list[str]) -> str:
 def run_doctor(args: list[str]) -> int:
     config_dir = Path(parse_doctor_args(args)).expanduser()
     tide_cli = Path(find_tide_cli())
+    config = read_launcher_config()
     print("Tide Doctor")
     print(f"launcher : {Path(__file__).resolve()}")
     print(f"tide-cli : {tide_cli}")
     print(f"config   : {config_dir}")
+    if config.get("source_dir"):
+        print(f"source   : {config['source_dir']}")
+    if config.get("install_mode"):
+        print(f"mode     : {config['install_mode']}")
     print("")
 
     ok = True
@@ -147,6 +188,11 @@ def run_doctor(args: list[str]) -> int:
         status_line(exists, rel, str(path))
         ok = ok and exists
 
+    source_dir = config.get("source_dir")
+    if source_dir:
+        source = Path(source_dir).expanduser()
+        status_line((source / "install.sh").exists(), "source install.sh", str(source / "install.sh"))
+
     code, root = command_output(["git", "rev-parse", "--show-toplevel"])
     in_git = code == 0
     status_line(in_git, "repositório git", root if in_git else "rode dentro de um repo para checar Waves")
@@ -165,11 +211,134 @@ def run_doctor(args: list[str]) -> int:
     return 1
 
 
+def parse_update_args(args: list[str]) -> dict[str, str | bool]:
+    parsed: dict[str, str | bool] = {
+        "dry_run": False,
+        "allow_dirty": False,
+        "no_doctor": False,
+        "source": "",
+    }
+    i = 0
+    while i < len(args):
+        item = args[i]
+        if item == "--dry-run":
+            parsed["dry_run"] = True
+            i += 1
+        elif item == "--allow-dirty":
+            parsed["allow_dirty"] = True
+            i += 1
+        elif item == "--no-doctor":
+            parsed["no_doctor"] = True
+            i += 1
+        elif item == "--source":
+            if i + 1 >= len(args):
+                print("erro: --source requer valor", file=sys.stderr)
+                raise SystemExit(1)
+            parsed["source"] = args[i + 1]
+            i += 2
+        elif item.startswith("--source="):
+            parsed["source"] = item.split("=", 1)[1]
+            i += 1
+        elif item in {"-h", "--help"}:
+            print("""Tide update
+
+Uso:
+  tide update [opções]
+
+Opções:
+  --dry-run        mostra o que faria, sem executar git pull/install
+  --allow-dirty    permite atualizar mesmo com source_dir sujo
+  --no-doctor      não roda tide doctor ao final
+  --source <dir>   usa outro repositório fonte nesta execução
+""")
+            raise SystemExit(0)
+        else:
+            print(f"erro: opção desconhecida para update: {item}", file=sys.stderr)
+            raise SystemExit(1)
+    return parsed
+
+
+def run_checked(args: list[str], *, cwd: Path | None = None, dry_run: bool = False) -> int:
+    shown = " ".join(str(part) for part in args)
+    if cwd:
+        shown = f"(cd {cwd} && {shown})"
+    if dry_run:
+        print(f"would run: {shown}")
+        return 0
+    print(f"run: {shown}")
+    return subprocess.call(args, cwd=cwd)
+
+
+def run_update(args: list[str]) -> int:
+    opts = parse_update_args(args)
+    config = read_launcher_config()
+
+    source_value = str(opts.get("source") or os.environ.get("TIDE_SOURCE_DIR") or config.get("source_dir") or "")
+    if not source_value:
+        print("erro: source_dir não encontrado em tide.config.", file=sys.stderr)
+        print("Reinstale a partir de um clone persistente ou use:", file=sys.stderr)
+        print("  tide update --source ~/workspace/tools/tide-protocol", file=sys.stderr)
+        return 1
+
+    source = Path(source_value).expanduser().resolve()
+    install_sh = source / "install.sh"
+    config_dir = config.get("config_dir") or default_config_dir()
+    install_mode = config.get("install_mode") or ("global" if Path(config_dir).expanduser() == DEFAULT_GLOBAL_CONFIG_DIR else "isolated")
+    bin_dir = config.get("bin_dir") or str(launcher_dir())
+    dry_run = bool(opts["dry_run"])
+
+    print("Tide Update")
+    print(f"source : {source}")
+    print(f"mode   : {install_mode}")
+    print(f"config : {config_dir}")
+    print(f"bin    : {bin_dir}")
+    print("")
+
+    if not install_sh.exists():
+        print(f"erro: install.sh não encontrado em {source}", file=sys.stderr)
+        return 1
+
+    code, dirty = command_output(["git", "status", "--short"], cwd=source)
+    if code != 0:
+        print(f"erro: não foi possível consultar git status em {source}: {dirty}", file=sys.stderr)
+        return code
+    if dirty and not opts["allow_dirty"]:
+        print("erro: repositório fonte do Tide está sujo; commit/stash antes de atualizar ou use --allow-dirty.", file=sys.stderr)
+        print(dirty, file=sys.stderr)
+        return 1
+
+    code = run_checked(["git", "pull", "--ff-only"], cwd=source, dry_run=dry_run)
+    if code != 0:
+        return code
+
+    install_cmd = ["bash", str(install_sh), "--force", f"--bin-dir={bin_dir}"]
+    if install_mode == "global":
+        install_cmd.append("--global")
+    else:
+        install_cmd.append(f"--config-dir={config_dir}")
+
+    code = run_checked(install_cmd, cwd=source, dry_run=dry_run)
+    if code != 0:
+        return code
+
+    if not opts["no_doctor"]:
+        tide = launcher_dir() / "tide"
+        doctor_cmd = [str(tide if tide.exists() else Path(__file__).resolve()), "doctor"]
+        code = run_checked(doctor_cmd, dry_run=dry_run)
+        if code != 0:
+            return code
+
+    print("Update: ok" if not dry_run else "Update dry-run: ok")
+    return 0
+
+
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] in {"opencode", "open"}:
         return run_opencode(argv[2:])
     if len(argv) > 1 and argv[1] == "doctor":
         return run_doctor(argv[2:])
+    if len(argv) > 1 and argv[1] == "update":
+        return run_update(argv[2:])
     return run_tide_cli(argv[1:])
 
 
