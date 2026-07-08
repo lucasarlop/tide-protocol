@@ -34,6 +34,12 @@ Taiga recebe objetivo, escopo, fora de escopo, critérios de aceite, validação
 Wave fica vinculada ao item
 ```
 
+Comando determinístico equivalente:
+
+```bash
+tide taiga create-from-wave TIDE-0005 --kind task --yes
+```
+
 ### 2. Atividade existente no Taiga para Wave
 
 Fluxo:
@@ -50,6 +56,14 @@ se autorizado, atualiza o Taiga
 Tide cria Wave vinculada
 ↓
 trabalho técnico segue normalmente
+```
+
+Comandos determinísticos equivalentes:
+
+```bash
+tide taiga get --kind task --ref 231
+tide taiga maturity --kind task --ref 231
+tide taiga link TIDE-0005 --kind task --ref 231
 ```
 
 Critérios de maturidade:
@@ -74,6 +88,13 @@ Supervisor: "registre esse processo no Taiga"
 tide-taiga usa Wave, code-report, validações e commit quando existirem
 ↓
 Taiga recebe registro consolidado
+```
+
+Comandos determinísticos equivalentes:
+
+```bash
+tide taiga create-from-wave TIDE-0005 --yes
+tide taiga sync TIDE-0005 --yes
 ```
 
 ## Sem `/approve --taiga`
@@ -114,12 +135,43 @@ Diagnóstico:
 ```bash
 tide taiga doctor
 tide taiga show
+tide taiga whoami
 ```
 
 Remoção:
 
 ```bash
 tide taiga logout
+```
+
+## Comandos disponíveis
+
+Read-only:
+
+```bash
+tide taiga whoami
+tide taiga projects
+tide taiga statuses --kind task
+tide taiga members
+tide taiga list --kind task
+tide taiga get --kind task --ref 231
+tide taiga maturity --kind task --ref 231
+```
+
+Escrita no Taiga, sempre com `--yes`:
+
+```bash
+tide taiga create --kind task --subject "Título" --description "Descrição" --yes
+tide taiga comment --kind task --ref 231 --text "Comentário" --yes
+tide taiga update --kind task --ref 231 --status "Em andamento" --yes
+tide taiga sync TIDE-0005 --yes
+tide taiga create-from-wave TIDE-0005 --kind task --yes
+```
+
+Metadado local de Wave, sem escrever no Taiga:
+
+```bash
+tide taiga link TIDE-0005 --kind task --ref 231
 ```
 
 ## Armazenamento
@@ -169,9 +221,8 @@ Com Taiga ativo:
 ## Componentes
 
 ```txt
+bin/tide-taiga
 opencode/agents/tide-taiga.md
 opencode/skills/taiga/SKILL.md
-tide taiga configure|doctor|show|logout
+tide taiga configure|doctor|whoami|get|create|comment|update|link|sync|create-from-wave
 ```
-
-A API real de criação/leitura/comentário deve ser implementada por comandos determinísticos antes de escrita automática ampla.
