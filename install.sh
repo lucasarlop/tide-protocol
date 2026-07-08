@@ -28,6 +28,9 @@ Recomendado para primeiro teste:
 
 Uso com config isolada:
   tide opencode
+
+Atualização depois de instalado:
+  tide update
 EOF
 }
 
@@ -43,9 +46,11 @@ for arg in "$@"; do
   esac
 done
 
-ROOT="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$(dirname "$0")" && pwd -P)"
 DEFAULT_GLOBAL="$HOME/.config/opencode"
 DEFAULT_ISOLATED="$HOME/.config/opencode-tide"
+INSTALL_MODE="isolated"
+[ "$CONFIG_DIR" = "$DEFAULT_GLOBAL" ] && INSTALL_MODE="global"
 
 say() { printf '%s\n' "$*"; }
 copy_tree() {
@@ -80,8 +85,7 @@ say "Tide Protocol installer"
 say "  source    : $ROOT"
 say "  opencode  : $CONFIG_DIR"
 say "  bin       : $BIN_DIR"
-[ "$CONFIG_DIR" = "$DEFAULT_ISOLATED" ] && say "  profile   : isolated"
-[ "$CONFIG_DIR" = "$DEFAULT_GLOBAL" ] && say "  profile   : global"
+say "  profile   : $INSTALL_MODE"
 [ "$DRY_RUN" = "1" ] && say "  mode      : dry-run"
 [ "$FORCE" = "1" ] && say "  mode      : force"
 say ""
@@ -103,7 +107,12 @@ else
   mkdir -p "$BIN_DIR"
   cp "$ROOT/bin/tide" "$BIN_DIR/tide-cli"
   cp "$ROOT/bin/tide-launcher" "$BIN_DIR/tide"
-  printf '%s\n' "$CONFIG_DIR" > "$BIN_DIR/tide.config"
+  cat > "$BIN_DIR/tide.config" <<EOF
+config_dir=$CONFIG_DIR
+source_dir=$ROOT
+install_mode=$INSTALL_MODE
+bin_dir=$BIN_DIR
+EOF
   chmod +x "$BIN_DIR/tide-cli" "$BIN_DIR/tide"
   say "  ok: $BIN_DIR/tide-cli"
   say "  ok: $BIN_DIR/tide"
@@ -119,6 +128,9 @@ else
   say "Abra um projeto com a config isolada:"
   say "  cd <projeto> && tide opencode"
 fi
+say ""
+say "Atualize depois com:"
+say "  tide update"
 say ""
 say "MCP seguro instalado em:"
 say "  $CONFIG_DIR/tide-mcp/tide_mcp.py"
