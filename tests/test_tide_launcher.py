@@ -84,6 +84,28 @@ class TideLauncherTests(unittest.TestCase):
         self.assertIn("Tide Doctor", result.stdout)
         self.assertIn("Doctor: ok", result.stdout)
         self.assertIn(str(self.config), result.stdout)
+        self.assertIn(str(ROOT), result.stdout)
+
+    def test_installer_records_update_metadata(self) -> None:
+        self.install()
+        config = (self.bin / "tide.config").read_text(encoding="utf-8")
+
+        self.assertIn(f"config_dir={self.config}", config)
+        self.assertIn(f"source_dir={ROOT}", config)
+        self.assertIn("install_mode=isolated", config)
+        self.assertIn(f"bin_dir={self.bin}", config)
+
+    def test_update_dry_run_uses_recorded_source(self) -> None:
+        self.install()
+        tide = self.bin / "tide"
+
+        result = self.cmd([str(tide), "update", "--dry-run", "--no-doctor"], cwd=self.repo)
+
+        self.assertIn("Tide Update", result.stdout)
+        self.assertIn(str(ROOT), result.stdout)
+        self.assertIn("would run:", result.stdout)
+        self.assertIn("git pull --ff-only", result.stdout)
+        self.assertIn("install.sh", result.stdout)
 
 
 if __name__ == "__main__":
