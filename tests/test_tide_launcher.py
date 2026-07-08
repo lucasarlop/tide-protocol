@@ -57,6 +57,12 @@ class TideLauncherTests(unittest.TestCase):
         env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
         return env
 
+    def env_with_temp_home(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env["PATH"] = f"{self.bin}:{env.get('PATH', '')}"
+        env["HOME"] = str(self.root / "home")
+        return env
+
     def test_launcher_delegates_regular_tide_commands(self) -> None:
         self.install()
         tide = self.bin / "tide"
@@ -106,6 +112,31 @@ class TideLauncherTests(unittest.TestCase):
         self.assertIn("would run:", result.stdout)
         self.assertIn("git pull --ff-only", result.stdout)
         self.assertIn("install.sh", result.stdout)
+
+    def test_taiga_configure_and_doctor_with_local_token(self) -> None:
+        self.install()
+        env = self.env_with_temp_home()
+        tide = self.bin / "tide"
+
+        self.cmd([
+            str(tide),
+            "taiga",
+            "configure",
+            "--base-url=https://taiga.example/api/v1",
+            "--project-id=43",
+            "--token=test-token",
+            "--allow-local-token",
+        ], env=env)
+        result = self.cmd([str(tide), "taiga", "doctor"], env=env)
+
+        self.assertIn("Tide Taiga Doctor", result.stdout)
+        self.assertIn("Taiga Doctor: ok", result.stdout)
+        self.assertIn("https://taiga.example/api/v1", result.stdout)
+        config = self.root / "home" / ".config" / "tide" / "taiga" / "config.json"
+        token = self.root / "home" / ".config" / "tide" / "taiga" / "token"
+        self.assertTrue(config.exists())
+        self.assertTrue(token.exists())
+        self.assertNotIn("test-token", result.stdout)
 
 
 if __name__ == "__main__":
