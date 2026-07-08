@@ -6,23 +6,14 @@ Delegates regular commands to `tide-cli` and provides convenience commands such 
 """
 from __future__ import annotations
 
-import getpass
-import json
 import os
-import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
 
 FALLBACK_CONFIG_DIR = Path.home() / ".config" / "opencode-tide"
 DEFAULT_GLOBAL_CONFIG_DIR = Path.home() / ".config" / "opencode"
-TAIGA_CONFIG_DIR = Path.home() / ".config" / "tide" / "taiga"
-TAIGA_CONFIG_FILE = TAIGA_CONFIG_DIR / "config.json"
-TAIGA_LOCAL_TOKEN_FILE = TAIGA_CONFIG_DIR / "token"
-TAIGA_KEYCHAIN_SERVICE = "tide-taiga"
-TAIGA_KEYCHAIN_ACCOUNT = "default"
 
 
 def launcher_dir() -> Path:
@@ -34,11 +25,6 @@ def config_file_path() -> Path:
 
 
 def read_launcher_config() -> dict[str, str]:
-    """Read tide.config.
-
-    Supports the old one-line format that only stored the config dir and the new
-    key=value format used by `tide update`.
-    """
     path = config_file_path()
     try:
         if not path.exists():
@@ -46,17 +32,13 @@ def read_launcher_config() -> dict[str, str]:
         raw = path.read_text(encoding="utf-8").strip()
     except OSError:
         return {}
-
     if not raw:
         return {}
-
     lines = [line.strip() for line in raw.splitlines() if line.strip() and not line.strip().startswith("#")]
     if not lines:
         return {}
-
     if all("=" not in line for line in lines):
         return {"config_dir": lines[0]}
-
     data: dict[str, str] = {}
     for line in lines:
         if "=" not in line:
@@ -79,14 +61,22 @@ def default_config_dir() -> str:
     return str(FALLBACK_CONFIG_DIR)
 
 
-def find_tide_cli() -> str:
-    sibling = launcher_dir() / "tide-cli"
+def find_sibling_or_path(name: str) -> str:
+    sibling = launcher_dir() / name
     if sibling.exists():
         return str(sibling)
-    found = shutil.which("tide-cli")
+    found = shutil.which(name)
     if found:
         return found
-    return str(launcher_dir() / "tide")
+    return str(sibling)
+
+
+def find_tide_cli() -> str:
+    return find_sibling_or_path("tide-cli")
+
+
+def find_tide_taiga() -> str:
+    return find_sibling_or_path("tide-taiga")
 
 
 def run_tide_cli(args: list[str]) -> int:
@@ -132,9 +122,9 @@ def status_line(ok: bool, label: str, detail: str = "") -> None:
     print(f"[{mark}] {label}{suffix}")
 
 
-def command_output(args: list[str], *, cwd: Path | None = None, input_text: str | None = None) -> tuple[int, str]:
+def command_output(args: list[str], *, cwd: Path | None = None) -> tuple[int, str]:
     try:
-        result = subprocess.run(args, cwd=cwd, text=True, input=input_text, capture_output=True)
+        result = subprocess.run(args, cwd=cwd, text=True, capture_output=True)
     except OSError as exc:
         return 127, str(exc)
     output = (result.stdout or result.stderr or "").strip()
@@ -164,10 +154,12 @@ def parse_doctor_args(args: list[str]) -> str:
 def run_doctor(args: list[str]) -> int:
     config_dir = Path(parse_doctor_args(args)).expanduser()
     tide_cli = Path(find_tide_cli())
+    tide_taiga = Path(find_tide_taiga())
     config = read_launcher_config()
     print("Tide Doctor")
     print(f"launcher : {Path(__file__).resolve()}")
     print(f"tide-cli : {tide_cli}")
+    print(f"tide-taiga: {tide_taiga}")
     print(f"config   : {config_dir}")
     if config.get("source_dir"):
         print(f"source   : {config['source_dir']}")
@@ -176,7 +168,6 @@ def run_doctor(args: list[str]) -> int:
     print("")
 
     ok = True
-
     cli_exists = tide_cli.exists()
     status_line(cli_exists, "tide-cli encontrado", str(tide_cli))
     ok = ok and cli_exists
@@ -184,6 +175,9 @@ def run_doctor(args: list[str]) -> int:
         code, out = command_output([str(tide_cli), "--version"])
         status_line(code == 0, "tide-cli executa", out)
         ok = ok and code == 0
+
+    taiga_exists = tide_taiga.exists()
+    status_line(taiga_exists, "tide-taiga encontrado", str(tide_taiga))
 
     opencode_path = shutil.which("opencode")
     status_line(bool(opencode_path), "opencode no PATH", opencode_path or "não encontrado")
@@ -221,12 +215,7 @@ def run_doctor(args: list[str]) -> int:
 
 
 def parse_update_args(args: list[str]) -> dict[str, str | bool]:
-    parsed: dict[str, str | bool] = {
-        "dry_run": False,
-        "allow_dirty": False,
-        "no_doctor": False,
-        "source": "",
-    }
+    parsed: dict[str, str | bool] = {"dry_run": False, "allow_dirty": False, "no_doctor": False, "source": ""}
     i = 0
     while i < len(args):
         item = args[i]
@@ -281,14 +270,12 @@ def run_checked(args: list[str], *, cwd: Path | None = None, dry_run: bool = Fal
 def run_update(args: list[str]) -> int:
     opts = parse_update_args(args)
     config = read_launcher_config()
-
     source_value = str(opts.get("source") or os.environ.get("TIDE_SOURCE_DIR") or config.get("source_dir") or "")
     if not source_value:
         print("erro: source_dir não encontrado em tide.config.", file=sys.stderr)
         print("Reinstale a partir de um clone persistente ou use:", file=sys.stderr)
         print("  tide update --source ~/workspace/tools/tide-protocol", file=sys.stderr)
         return 1
-
     source = Path(source_value).expanduser().resolve()
     install_sh = source / "install.sh"
     config_dir = config.get("config_dir") or default_config_dir()
@@ -319,291 +306,21 @@ def run_update(args: list[str]) -> int:
     code = run_checked(["git", "pull", "--ff-only"], cwd=source, dry_run=dry_run)
     if code != 0:
         return code
-
     install_cmd = ["bash", str(install_sh), "--force", f"--bin-dir={bin_dir}"]
     if install_mode == "global":
         install_cmd.append("--global")
     else:
         install_cmd.append(f"--config-dir={config_dir}")
-
     code = run_checked(install_cmd, cwd=source, dry_run=dry_run)
     if code != 0:
         return code
-
     if not opts["no_doctor"]:
         tide = launcher_dir() / "tide"
-        doctor_cmd = [str(tide if tide.exists() else Path(__file__).resolve()), "doctor"]
-        code = run_checked(doctor_cmd, dry_run=dry_run)
+        code = run_checked([str(tide if tide.exists() else Path(__file__).resolve()), "doctor"], dry_run=dry_run)
         if code != 0:
             return code
-
     print("Update: ok" if not dry_run else "Update dry-run: ok")
     return 0
-
-
-def load_taiga_config() -> dict[str, Any]:
-    if not TAIGA_CONFIG_FILE.exists():
-        return {}
-    try:
-        return json.loads(TAIGA_CONFIG_FILE.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        print(f"erro: config Taiga inválida em {TAIGA_CONFIG_FILE}: {exc}", file=sys.stderr)
-        raise SystemExit(1)
-
-
-def write_taiga_config(data: dict[str, Any]) -> None:
-    TAIGA_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    TAIGA_CONFIG_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    try:
-        TAIGA_CONFIG_FILE.chmod(0o600)
-    except OSError:
-        pass
-
-
-def keychain_available() -> bool:
-    return platform.system() == "Darwin" and bool(shutil.which("security"))
-
-
-def save_taiga_token(token: str, *, allow_local_token: bool = False) -> str:
-    if keychain_available():
-        code = subprocess.call([
-            "security",
-            "add-generic-password",
-            "-a",
-            TAIGA_KEYCHAIN_ACCOUNT,
-            "-s",
-            TAIGA_KEYCHAIN_SERVICE,
-            "-w",
-            token,
-            "-U",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        if code == 0:
-            return "macos-keychain"
-        print("warn: não foi possível gravar no macOS Keychain", file=sys.stderr)
-
-    if not allow_local_token:
-        print("erro: Keychain indisponível. Repita com --allow-local-token para salvar token localmente em arquivo chmod 600.", file=sys.stderr)
-        raise SystemExit(1)
-
-    TAIGA_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    TAIGA_LOCAL_TOKEN_FILE.write_text(token + "\n", encoding="utf-8")
-    try:
-        TAIGA_LOCAL_TOKEN_FILE.chmod(0o600)
-    except OSError:
-        pass
-    return "local-file"
-
-
-def taiga_token_exists(storage: str | None = None) -> bool:
-    storage = storage or load_taiga_config().get("token_storage")
-    if storage == "macos-keychain":
-        code, out = command_output([
-            "security",
-            "find-generic-password",
-            "-a",
-            TAIGA_KEYCHAIN_ACCOUNT,
-            "-s",
-            TAIGA_KEYCHAIN_SERVICE,
-            "-w",
-        ])
-        return code == 0 and bool(out)
-    if storage == "local-file":
-        return TAIGA_LOCAL_TOKEN_FILE.exists() and bool(TAIGA_LOCAL_TOKEN_FILE.read_text(encoding="utf-8").strip())
-    return False
-
-
-def delete_taiga_token(storage: str | None = None) -> None:
-    storage = storage or load_taiga_config().get("token_storage")
-    if storage == "macos-keychain" and keychain_available():
-        subprocess.call([
-            "security",
-            "delete-generic-password",
-            "-a",
-            TAIGA_KEYCHAIN_ACCOUNT,
-            "-s",
-            TAIGA_KEYCHAIN_SERVICE,
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if TAIGA_LOCAL_TOKEN_FILE.exists():
-        try:
-            TAIGA_LOCAL_TOKEN_FILE.unlink()
-        except OSError:
-            pass
-
-
-def parse_taiga_configure_args(args: list[str]) -> dict[str, Any]:
-    parsed: dict[str, Any] = {
-        "base_url": "",
-        "project_id": "",
-        "default_kind": "task",
-        "token": "",
-        "allow_local_token": False,
-    }
-    i = 0
-    while i < len(args):
-        item = args[i]
-        if item == "--base-url":
-            parsed["base_url"] = args[i + 1] if i + 1 < len(args) else ""
-            i += 2
-        elif item.startswith("--base-url="):
-            parsed["base_url"] = item.split("=", 1)[1]
-            i += 1
-        elif item == "--project-id":
-            parsed["project_id"] = args[i + 1] if i + 1 < len(args) else ""
-            i += 2
-        elif item.startswith("--project-id="):
-            parsed["project_id"] = item.split("=", 1)[1]
-            i += 1
-        elif item == "--default-kind":
-            parsed["default_kind"] = args[i + 1] if i + 1 < len(args) else ""
-            i += 2
-        elif item.startswith("--default-kind="):
-            parsed["default_kind"] = item.split("=", 1)[1]
-            i += 1
-        elif item == "--token":
-            parsed["token"] = args[i + 1] if i + 1 < len(args) else ""
-            i += 2
-        elif item.startswith("--token="):
-            parsed["token"] = item.split("=", 1)[1]
-            i += 1
-        elif item == "--allow-local-token":
-            parsed["allow_local_token"] = True
-            i += 1
-        elif item in {"-h", "--help"}:
-            print("""Tide Taiga configure
-
-Uso:
-  tide taiga configure [opções]
-
-Opções:
-  --base-url <url>          URL base da API, ex: https://taiga.example/api/v1
-  --project-id <id>         ID numérico do projeto Taiga
-  --default-kind <kind>     task | userstory | issue (default: task)
-  --token <token>           token de acesso; se omitido, será pedido interativamente
-  --allow-local-token       fallback fora do macOS Keychain: salva token local em chmod 600
-""")
-            raise SystemExit(0)
-        else:
-            print(f"erro: opção desconhecida para taiga configure: {item}", file=sys.stderr)
-            raise SystemExit(1)
-    return parsed
-
-
-def run_taiga_configure(args: list[str]) -> int:
-    opts = parse_taiga_configure_args(args)
-    current = load_taiga_config()
-
-    base_url = str(opts["base_url"] or current.get("base_url") or input("Taiga base URL: ")).strip().rstrip("/")
-    project_id_raw = str(opts["project_id"] or current.get("project_id") or input("Taiga project ID: ")).strip()
-    default_kind = str(opts["default_kind"] or current.get("default_kind") or "task").strip()
-
-    if default_kind not in {"task", "userstory", "issue"}:
-        print("erro: --default-kind deve ser task, userstory ou issue", file=sys.stderr)
-        return 1
-    if not base_url:
-        print("erro: base URL obrigatória", file=sys.stderr)
-        return 1
-    try:
-        project_id = int(project_id_raw)
-    except ValueError:
-        print("erro: project ID deve ser numérico", file=sys.stderr)
-        return 1
-
-    token = str(opts["token"] or "")
-    if not token:
-        token = getpass.getpass("Taiga auth token: ").strip()
-    if not token:
-        print("erro: token obrigatório", file=sys.stderr)
-        return 1
-
-    storage = save_taiga_token(token, allow_local_token=bool(opts["allow_local_token"]))
-    config = {
-        "base_url": base_url,
-        "project_id": project_id,
-        "default_kind": default_kind,
-        "token_storage": storage,
-        "auto_sync": True,
-        "auto_comment_on_finish": True,
-        "auto_comment_on_commit": True,
-        "auto_move_status": False,
-    }
-    write_taiga_config(config)
-
-    print("Taiga configurado")
-    print(f"config : {TAIGA_CONFIG_FILE}")
-    print(f"base   : {base_url}")
-    print(f"project: {project_id}")
-    print(f"kind   : {default_kind}")
-    print(f"token  : {storage}")
-    return 0
-
-
-def run_taiga_doctor(_args: list[str]) -> int:
-    config = load_taiga_config()
-    print("Tide Taiga Doctor")
-    print(f"config : {TAIGA_CONFIG_FILE}")
-    if not config:
-        status_line(False, "config Taiga", "não configurado; rode `tide taiga configure`")
-        return 1
-
-    ok = True
-    for key in ["base_url", "project_id", "default_kind", "token_storage"]:
-        exists = key in config and config[key] not in {"", None}
-        status_line(exists, key, "ok" if exists else "ausente")
-        ok = ok and exists
-    token_ok = taiga_token_exists(str(config.get("token_storage", "")))
-    status_line(token_ok, "token", str(config.get("token_storage", "não configurado")))
-    ok = ok and token_ok
-    print(f"base   : {config.get('base_url', '')}")
-    print(f"project: {config.get('project_id', '')}")
-    print(f"kind   : {config.get('default_kind', '')}")
-    print("Taiga Doctor: ok" if ok else "Taiga Doctor: há avisos")
-    return 0 if ok else 1
-
-
-def run_taiga_show(_args: list[str]) -> int:
-    config = load_taiga_config()
-    if not config:
-        print("Taiga não configurado")
-        return 1
-    redacted = dict(config)
-    redacted["token_present"] = taiga_token_exists(str(config.get("token_storage", "")))
-    print(json.dumps(redacted, indent=2, ensure_ascii=False))
-    return 0
-
-
-def run_taiga_logout(_args: list[str]) -> int:
-    config = load_taiga_config()
-    delete_taiga_token(str(config.get("token_storage", "")))
-    if TAIGA_CONFIG_FILE.exists():
-        TAIGA_CONFIG_FILE.unlink()
-    print("Taiga removido da configuração local")
-    return 0
-
-
-def run_taiga(args: list[str]) -> int:
-    if not args or args[0] in {"-h", "--help"}:
-        print("""Tide Taiga
-
-Uso:
-  tide taiga configure
-  tide taiga doctor
-  tide taiga show
-  tide taiga logout
-
-A integração Taiga é opcional. Ela só deve ser usada quando o supervisor sinalizar explicitamente Taiga ou quando uma Wave já estiver vinculada ao Taiga.
-""")
-        return 0
-    command, rest = args[0], args[1:]
-    if command == "configure":
-        return run_taiga_configure(rest)
-    if command == "doctor":
-        return run_taiga_doctor(rest)
-    if command == "show":
-        return run_taiga_show(rest)
-    if command == "logout":
-        return run_taiga_logout(rest)
-    print(f"erro: comando Taiga desconhecido: {command}", file=sys.stderr)
-    return 1
 
 
 def main(argv: list[str]) -> int:
@@ -614,7 +331,7 @@ def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "update":
         return run_update(argv[2:])
     if len(argv) > 1 and argv[1] == "taiga":
-        return run_taiga(argv[2:])
+        return subprocess.call([find_tide_taiga(), *argv[2:]])
     return run_tide_cli(argv[1:])
 
 
