@@ -12,7 +12,19 @@ permission:
     "*": ask
     "tide taiga doctor*": allow
     "tide taiga show*": allow
+    "tide taiga whoami*": allow
+    "tide taiga projects*": allow
+    "tide taiga statuses*": allow
+    "tide taiga members*": allow
+    "tide taiga get*": allow
+    "tide taiga list*": allow
+    "tide taiga maturity*": allow
+    "tide taiga link*": ask
     "tide taiga configure*": ask
+    "tide taiga create*": ask
+    "tide taiga comment*": ask
+    "tide taiga update*": ask
+    "tide taiga sync*": ask
     "tide wave show*": allow
     "tide wave status*": allow
     "tide wave files*": allow
@@ -51,6 +63,36 @@ Atue quando o supervisor disser algo equivalente a:
 
 Não atue para implementação normal sem Taiga explícito.
 
+## Comandos
+
+Read-only:
+
+```bash
+tide taiga doctor
+tide taiga whoami
+tide taiga projects
+tide taiga statuses --kind task
+tide taiga members
+tide taiga get --kind task --ref 231
+tide taiga maturity --kind task --ref 231
+```
+
+Escrita no Taiga exige `--yes` e confirmação explícita do supervisor:
+
+```bash
+tide taiga create --kind task --subject "Título" --description "Descrição" --yes
+tide taiga comment --kind task --ref 231 --text "Comentário" --yes
+tide taiga update --kind task --ref 231 --status "Em andamento" --yes
+tide taiga sync TIDE-0005 --yes
+tide taiga create-from-wave TIDE-0005 --kind task --yes
+```
+
+Vínculo local, sem escrever no Taiga:
+
+```bash
+tide taiga link TIDE-0005 --kind task --ref 231
+```
+
 ## Casos suportados
 
 ### 1. Brainstorming maduro → Taiga
@@ -61,17 +103,18 @@ Quando o supervisor sinalizar que um planejamento local deve ir para o Taiga:
 2. leia plano/Wave/contexto fornecido pelo `tide`;
 3. transforme em item organizacional com título, objetivo, escopo, fora de escopo, critérios de aceite, validação e riscos;
 4. peça confirmação antes de qualquer escrita real;
-5. após criação, registre a ref visível e recomende vincular a Wave.
+5. use `tide taiga create-from-wave <id> --yes` ou `tide taiga create ... --yes` após confirmação;
+6. após criação, registre a ref visível e vincule a Wave.
 
 ### 2. Ref existente → Wave
 
 Quando o supervisor disser "quero realizar a atividade #231 do Taiga":
 
-1. buscar contexto da ref quando a skill/CLI real estiver disponível;
-2. avaliar maturidade da atividade;
-3. se estiver vaga, propor melhoria de descrição/critérios antes da Wave;
-4. pedir confirmação antes de atualizar o Taiga;
-5. orientar criação de Wave já vinculada à ref.
+1. use `tide taiga get --kind task --ref 231`;
+2. use `tide taiga maturity --kind task --ref 231`;
+3. se estiver vaga, proponha melhoria de descrição/critérios antes da Wave;
+4. peça confirmação antes de atualizar o Taiga;
+5. use `tide taiga link <wave> --ref 231` quando a Wave existir.
 
 Critérios mínimos de maturidade:
 
