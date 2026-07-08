@@ -41,6 +41,7 @@ Diagnóstico:
 ```bash
 tide taiga doctor
 tide taiga show
+tide taiga whoami
 ```
 
 Remoção local:
@@ -63,6 +64,36 @@ Também use quando a Wave já tiver vínculo Taiga ativo.
 
 Não use Taiga em fluxo normal de código sem sinalização explícita.
 
+## Comandos operacionais
+
+Read-only:
+
+```bash
+tide taiga whoami
+tide taiga projects
+tide taiga statuses --kind task
+tide taiga members
+tide taiga list --kind task
+tide taiga get --kind task --ref 231
+tide taiga maturity --kind task --ref 231
+```
+
+Escrita no Taiga exige `--yes` e confirmação explícita do supervisor:
+
+```bash
+tide taiga create --kind task --subject "Título" --description "Descrição" --yes
+tide taiga comment --kind task --ref 231 --text "Comentário" --yes
+tide taiga update --kind task --ref 231 --status "Em andamento" --yes
+tide taiga sync TIDE-0005 --yes
+tide taiga create-from-wave TIDE-0005 --kind task --yes
+```
+
+Vínculo local de Wave, sem escrever no Taiga:
+
+```bash
+tide taiga link TIDE-0005 --kind task --ref 231
+```
+
 ## Ciclo suportado
 
 ### Planejamento maduro para Taiga
@@ -71,26 +102,27 @@ Quando o planejamento local estiver maduro e o supervisor pedir para levar ao Ta
 
 - transforme o plano em item organizacional;
 - inclua objetivo, escopo, fora de escopo, critérios de aceite, validação esperada e riscos;
-- peça confirmação antes de criar item real;
+- use `tide taiga create-from-wave <id> --yes` ou `tide taiga create ... --yes` após confirmação;
 - após criar, registre ref visível e vincule à Wave quando possível.
 
 ### Atividade existente no Taiga
 
 Quando o supervisor pedir para trabalhar em uma ref, como `#231`:
 
-- buscar a atividade quando a API real estiver disponível;
-- avaliar maturidade antes de implementar;
-- propor ajuste se objetivo/escopo/critérios/validação estiverem vagos;
-- pedir confirmação antes de editar descrição/status/assignee/sprint;
-- criar ou orientar criação de Wave vinculada.
+- use `tide taiga get --kind task --ref 231` para ler;
+- use `tide taiga maturity --kind task --ref 231` para avaliar maturidade;
+- proponha ajuste se objetivo/escopo/critérios/validação estiverem vagos;
+- peça confirmação antes de editar descrição/status/assignee/sprint;
+- use `tide taiga link <wave> --ref 231` para vincular a Wave.
 
 ### Trabalho local para Taiga
 
 Quando o trabalho já foi feito localmente:
 
-- usar Wave, validações, code-report e commit se existirem;
-- criar ou atualizar item com histórico consolidado;
-- não inventar evidência ausente.
+- use Wave, validações, code-report e commit se existirem;
+- use `tide taiga create-from-wave <id> --yes` para criar item retrospectivo;
+- use `tide taiga sync <id> --yes` para comentar o estado consolidado;
+- não invente evidência ausente.
 
 ## Escrita e confirmação
 
