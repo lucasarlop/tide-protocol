@@ -100,6 +100,7 @@ class TideLauncherTests(unittest.TestCase):
         self.assertIn(f"source_dir={ROOT}", config)
         self.assertIn("install_mode=isolated", config)
         self.assertIn(f"bin_dir={self.bin}", config)
+        self.assertTrue((self.bin / "tide-taiga").exists())
 
     def test_update_dry_run_uses_recorded_source(self) -> None:
         self.install()
