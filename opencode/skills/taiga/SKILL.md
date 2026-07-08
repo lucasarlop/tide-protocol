@@ -88,6 +88,22 @@ tide taiga sync TIDE-0005 --yes
 tide taiga create-from-wave TIDE-0005 --kind task --yes
 ```
 
+Para texto longo, use stdin diretamente no comando Tide:
+
+```bash
+tide taiga create --kind task --subject "Título" --description-stdin --yes <<'EOF'
+Descrição longa.
+EOF
+
+tide taiga comment --kind task --ref 231 --text-stdin --yes <<'EOF'
+Comentário longo.
+EOF
+
+tide taiga update --kind task --ref 231 --description-stdin --yes <<'EOF'
+Descrição atualizada.
+EOF
+```
+
 Vínculo local de Wave, sem escrever no Taiga:
 
 ```bash
