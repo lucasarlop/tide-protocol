@@ -102,20 +102,23 @@ say "Instalando CLI tide:"
 if [ "$DRY_RUN" = "1" ]; then
   say "  would copy: $BIN_DIR/tide-cli"
   say "  would copy: $BIN_DIR/tide"
+  say "  would copy: $BIN_DIR/tide-taiga"
   say "  would write: $BIN_DIR/tide.config"
 else
   mkdir -p "$BIN_DIR"
   cp "$ROOT/bin/tide" "$BIN_DIR/tide-cli"
   cp "$ROOT/bin/tide-launcher" "$BIN_DIR/tide"
+  cp "$ROOT/bin/tide-taiga" "$BIN_DIR/tide-taiga"
   cat > "$BIN_DIR/tide.config" <<EOF
 config_dir=$CONFIG_DIR
 source_dir=$ROOT
 install_mode=$INSTALL_MODE
 bin_dir=$BIN_DIR
 EOF
-  chmod +x "$BIN_DIR/tide-cli" "$BIN_DIR/tide"
+  chmod +x "$BIN_DIR/tide-cli" "$BIN_DIR/tide" "$BIN_DIR/tide-taiga"
   say "  ok: $BIN_DIR/tide-cli"
   say "  ok: $BIN_DIR/tide"
+  say "  ok: $BIN_DIR/tide-taiga"
   say "  ok: $BIN_DIR/tide.config"
 fi
 
