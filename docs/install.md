@@ -9,11 +9,11 @@ A partir do instalador atual, o modo isolado é o padrão seguro.
 
 ## Instalação isolada recomendada
 
-Use um diretório de configuração separado do OpenCode:
+Use um diretório persistente para permitir `tide update` depois:
 
 ```bash
-git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
-cd /tmp/tide-protocol
+git clone https://github.com/lucasarlop/tide-protocol.git ~/workspace/tools/tide-protocol
+cd ~/workspace/tools/tide-protocol
 bash install.sh --force
 ```
 
@@ -34,7 +34,16 @@ Também instala:
 ```txt
 ~/.local/bin/tide      launcher Tide
 ~/.local/bin/tide-cli  CLI operacional real
-~/.local/bin/tide.config  config isolada usada pelo launcher
+~/.local/bin/tide.config  metadados da instalação usados pelo launcher/update
+```
+
+`tide.config` registra, em formato `key=value`:
+
+```txt
+config_dir=<config do OpenCode usada pelo Tide>
+source_dir=<clone local do tide-protocol>
+install_mode=isolated|global
+bin_dir=<diretório onde tide/tide-cli foram instalados>
 ```
 
 Para usar Tide em um projeto específico:
@@ -88,6 +97,12 @@ Diagnosticar instalação e projeto:
 tide doctor
 ```
 
+Atualizar o protocolo instalado a partir do clone registrado:
+
+```bash
+tide update
+```
+
 Comandos normais continuam funcionando:
 
 ```bash
@@ -104,8 +119,8 @@ Use quando quiser que Tide fique disponível por padrão em qualquer projeto.
 A instalação global exige flag explícita:
 
 ```bash
-git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
-cd /tmp/tide-protocol
+git clone https://github.com/lucasarlop/tide-protocol.git ~/workspace/tools/tide-protocol
+cd ~/workspace/tools/tide-protocol
 bash install.sh --global --force
 ```
 
@@ -122,6 +137,41 @@ bin/tide-launcher -> ~/.local/bin/tide
 ```
 
 Sem `--global`, o instalador não escreve em `~/.config/opencode`.
+
+## Atualização com um comando
+
+Depois de instalado a partir de um clone persistente, use:
+
+```bash
+tide update
+```
+
+O comando:
+
+1. lê `~/.local/bin/tide.config`;
+2. encontra `source_dir`;
+3. bloqueia se o clone do Tide estiver com alterações locais, salvo `--allow-dirty`;
+4. executa `git pull --ff-only`;
+5. roda `install.sh --force` preservando modo isolado/global, config e bin dir;
+6. executa `tide doctor` ao final.
+
+Opções úteis:
+
+```bash
+tide update --dry-run
+tide update --no-doctor
+tide update --allow-dirty
+tide update --source ~/workspace/tools/tide-protocol
+```
+
+Se a instalação antiga não tiver `source_dir` em `tide.config`, reinstale uma vez a partir do clone persistente:
+
+```bash
+cd ~/workspace/tools/tide-protocol
+bash install.sh --force
+```
+
+A partir daí, `tide update` passa a funcionar.
 
 ## Validar instalação
 
@@ -161,20 +211,20 @@ O próprio agente deve:
 
 Os comandos CLI existem para automação, auditoria e uso manual quando você quiser intervir.
 
-## Atualizar
+## Atualizar manualmente
 
-Para atualizar a instalação isolada:
+Para atualizar a instalação isolada sem `tide update`:
 
 ```bash
-cd /tmp/tide-protocol
+cd ~/workspace/tools/tide-protocol
 git pull
 bash install.sh --force
 ```
 
-Para atualizar instalação global:
+Para atualizar instalação global sem `tide update`:
 
 ```bash
-cd /tmp/tide-protocol
+cd ~/workspace/tools/tide-protocol
 git pull
 bash install.sh --global --force
 ```
