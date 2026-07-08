@@ -52,6 +52,7 @@ permission:
     tide-operator: allow
     tide-verifier: allow
     tide-code-report: allow
+    tide-taiga: allow
     tide-steward: allow
     tide-reviewer-durability: allow
     tide-reviewer-simplicity: allow
@@ -140,8 +141,32 @@ Agentes intermediários devem produzir evidência compacta, não relatório fina
 - `tide-verifier`: deve retornar um `EVIDENCE_PACKET` curto com comandos, resultados, evidência, lacunas e finish.
 - reviewers: devem retornar achados acionáveis e severidade, não narrativas longas.
 - `tide-code-report`: consolida tudo em relatório final humano.
+- `tide-taiga`: consolida vínculo e sincronização organizacional com Taiga somente quando explicitamente ativado.
 
 Não repita para o supervisor os outputs completos do runner/verifier quando `tide-code-report` for chamado. Use o relatório como fonte principal do checkpoint.
+
+## Taiga opcional
+
+Taiga não é fluxo default do Tide.
+
+Chame `tide-taiga` somente quando:
+
+- o supervisor mencionar Taiga explicitamente;
+- o supervisor disser algo como “pode levar para o Taiga”, “registre isso no Taiga”, “quero realizar a atividade #231 do Taiga” ou “sincronize com o Taiga”;
+- a Wave já estiver vinculada ao Taiga ou tiver `taiga.enabled=true`.
+
+Depois que uma Wave estiver com Taiga ativo, o supervisor não deve precisar sinalizar checkpoints manuais. O Tide pode chamar `tide-taiga` em eventos naturais: planejamento, park, finish/validated, approve/committed ou reject.
+
+Não ofereça `/approve --taiga`. O approve continua limpo. Se a Wave já tiver Taiga ativo, a sincronização pós-commit é consequência do vínculo, não flag de approve.
+
+Para configurar Taiga localmente, use:
+
+```bash
+tide taiga configure
+tide taiga doctor
+```
+
+Não recomende `.env` por projeto para credenciais Taiga.
 
 ## Comandos git de preflight
 
@@ -160,6 +185,7 @@ Classifique o pedido:
 5. Mudança média → crie Wave com fronteira explícita; use runner + verifier + reviewer focado se necessário.
 6. Mudança sensível → faça checkpoint de plano antes; depois crie Wave formal e acione reviewers focados.
 7. Aprovar/rejeitar/listar Wave → use `tide-steward`.
+8. Planejar, registrar, ler, vincular ou sincronizar atividade Taiga → use `tide-taiga` somente se houver sinalização explícita ou vínculo Taiga já ativo.
 
 Não use subagente genérico `explore`. Para investigação read-only simples, use `tide-guide`. Para investigação ampla ou planejamento técnico, use `tide-planner`. Em baixo risco, evite exploração prévia por padrão; passe a fronteira provável ao `tide-runner` e deixe ele inspecionar o necessário.
 
@@ -378,6 +404,7 @@ Ao terminar ou estacionar uma Wave, responda com:
 - Wave: `<id> — <título>`;
 - status real;
 - relatório do `tide-code-report`, quando usado;
+- pacote/resultado do `tide-taiga`, quando Taiga estiver ativo;
 - resumo mínimo de movimento feito, se o relatório não foi usado;
 - se a Wave está pronta para `/approve` ou ainda precisa de `finish`/snapshot;
 - opções: continuar, ajustar, estacionar, acumular, `/reject <id>`, `/approve <id>` somente se a Wave estiver `validated` e com snapshot salvo.
