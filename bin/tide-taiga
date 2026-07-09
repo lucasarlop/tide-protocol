@@ -218,6 +218,34 @@ def filter_entities(items: list[dict[str, Any]], *, subject: str | None = None, 
     return matched
 
 
+def text_summary(value: str) -> dict[str, Any]:
+    lines = value.splitlines()
+    return {
+        "length": len(value),
+        "lines": len(lines),
+        "preview": value if len(value) <= 1200 else value[:1200] + "\n...[truncated]",
+    }
+
+
+def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None) -> None:
+    safe_payload: dict[str, Any] = {}
+    for key, value in (payload or {}).items():
+        if key in {"description", "comment"} and isinstance(value, str):
+            safe_payload[key] = text_summary(value)
+        else:
+            safe_payload[key] = value
+    print_json({
+        "dry_run": True,
+        "will_write": False,
+        "operation": operation,
+        "kind": public_kind(canonical_kind(kind)),
+        "target": target,
+        "payload": safe_payload,
+        "requires_next_step": "Peça autorização explícita ao supervisor; só depois execute novamente com --yes sem --dry-run.",
+        "note": note,
+    })
+
+
 class TaigaClient:
     def __init__(self, config: dict[str, Any]):
         self.config = config
@@ -385,7 +413,7 @@ def cmd_configure(args: argparse.Namespace) -> None:
     try:
         project_id = int(project_id_raw)
     except ValueError:
-        die("project ID deve ser numérico")
+        die("project ID deve be numérico")
     token = args.token or getpass.getpass("Taiga auth token: ").strip()
     if not token:
         die("token obrigatório")
@@ -487,7 +515,6 @@ def cmd_find(args: argparse.Namespace) -> None:
 
 
 def cmd_create(args: argparse.Namespace) -> None:
-    require_yes(args, "create")
     c = client()
     canonical = canonical_kind(args.kind)
     project_id = c.project_id(args.project_id)
@@ -504,11 +531,14 @@ def cmd_create(args: argparse.Namespace) -> None:
         payload["assigned_to"] = c.resolve_member(args.assigned_to, project_id)
     if args.status:
         payload["status"] = c.resolve_status(canonical, args.status, project_id)
+    if args.dry_run:
+        dry_run_output("create", canonical, payload=payload)
+        return
+    require_yes(args, "create")
     print_json({"created": compact_entity(c.create_entity(canonical, payload), kind=canonical), "kind": public_kind(canonical)})
 
 
 def cmd_comment(args: argparse.Namespace) -> None:
-    require_yes(args, "comment")
     if args.text_stdin:
         text = read_stdin_text("comentário")
     elif args.text_file:
@@ -520,11 +550,16 @@ def cmd_comment(args: argparse.Namespace) -> None:
     c = client()
     canonical = canonical_kind(args.kind)
     item = c.resolve_ref(canonical, args.ref, args.project_id)
-    print_json({"commented": compact_entity(c.patch_entity(canonical, int(item["id"]), {"comment": text}), kind=canonical), "kind": public_kind(canonical)})
+    payload = {"comment": text}
+    target = compact_entity(item, kind=canonical)
+    if args.dry_run:
+        dry_run_output("comment", canonical, target=target, payload=payload)
+        return
+    require_yes(args, "comment")
+    print_json({"commented": compact_entity(c.patch_entity(canonical, int(item["id"]), payload), kind=canonical), "kind": public_kind(canonical)})
 
 
 def cmd_update(args: argparse.Namespace) -> None:
-    require_yes(args, "update")
     c = client()
     canonical = canonical_kind(args.kind)
     item = c.resolve_ref(canonical, args.ref, args.project_id)
@@ -544,6 +579,11 @@ def cmd_update(args: argparse.Namespace) -> None:
         payload["assigned_to"] = c.resolve_member(args.assigned_to, project_id)
     if not payload:
         die("nada para atualizar")
+    target = compact_entity(item, kind=canonical)
+    if args.dry_run:
+        dry_run_output("update", canonical, target=target, payload=payload)
+        return
+    require_yes(args, "update")
     print_json({"updated": compact_entity(c.patch_entity(canonical, int(item["id"]), payload), kind=canonical), "kind": public_kind(canonical)})
 
 
@@ -620,7 +660,6 @@ def wave_summary(wave: dict[str, Any]) -> str:
 
 
 def cmd_sync(args: argparse.Namespace) -> None:
-    require_yes(args, "sync")
     wave = read_wave(args.wave)
     taiga = wave.get("taiga") or {}
     if not taiga and not args.ref:
@@ -630,7 +669,13 @@ def cmd_sync(args: argparse.Namespace) -> None:
     text = args.text or wave_summary(wave)
     c = client()
     item = c.resolve_ref(kind, int(ref), args.project_id or taiga.get("project_id"))
-    updated = c.patch_entity(kind, int(item["id"]), {"comment": text})
+    payload = {"comment": text}
+    target = compact_entity(item, kind=kind)
+    if args.dry_run:
+        dry_run_output("sync-comment", kind, target=target, payload=payload, note=f"Wave: {args.wave}")
+        return
+    require_yes(args, "sync")
+    updated = c.patch_entity(kind, int(item["id"]), payload)
     taiga.update({"enabled": True, "ref": int(ref), "kind": public_kind(canonical_kind(kind)), "last_sync": datetime.now().astimezone().isoformat(timespec="seconds")})
     wave["taiga"] = taiga
     write_wave(args.wave, wave)
@@ -649,16 +694,25 @@ def description_from_wave(wave: dict[str, Any]) -> str:
 
 
 def cmd_create_from_wave(args: argparse.Namespace) -> None:
-    require_yes(args, "create-from-wave")
     wave = read_wave(args.wave)
     c = client()
     kind = args.kind or load_config(True).get("default_kind", "task")
-    created = c.create_entity(kind, {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or ["tide"]})
+    payload = {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or ["tide"]}
+    if args.dry_run:
+        dry_run_output("create-from-wave", kind, payload=payload, note=f"Wave: {args.wave}")
+        return
+    require_yes(args, "create-from-wave")
+    created = c.create_entity(kind, payload)
     ref = int(created.get("ref") or created.get("id"))
     taiga = {"enabled": True, "ref": ref, "kind": public_kind(canonical_kind(kind)), "project_id": c.project_id(args.project_id), "auto_sync": True, "created_by_tide": True, "last_sync": None}
     wave["taiga"] = taiga
     write_wave(args.wave, wave)
     print_json({"created": compact_entity(created, kind=kind), "linked": args.wave, "taiga": taiga})
+
+
+def add_write_guard_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--dry-run", action="store_true", help="mostra o que seria alterado, sem escrever no Taiga")
+    parser.add_argument("--yes", action="store_true", help="confirma escrita no Taiga após aprovação explícita")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -673,13 +727,13 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("get"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_get)
     p = sub.add_parser("list"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_list)
     p = sub.add_parser("find"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--project-id", type=int); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_find)
-    p = sub.add_parser("create"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--tag", action="append"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_create)
-    p = sub.add_parser("comment"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_comment)
-    p = sub.add_parser("update"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--project-id", type=int); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_update)
+    p = sub.add_parser("create"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--tag", action="append"); add_write_guard_args(p); p.set_defaults(func=cmd_create)
+    p = sub.add_parser("comment"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_comment)
+    p = sub.add_parser("update"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_update)
     p = sub.add_parser("maturity"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_maturity)
     p = sub.add_parser("link"); p.add_argument("wave"); p.add_argument("--ref", type=int, required=True); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--created-by-tide", action="store_true"); p.add_argument("--no-auto-sync", action="store_true"); p.set_defaults(func=cmd_link)
-    p = sub.add_parser("sync"); p.add_argument("wave"); p.add_argument("--ref", type=int); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--text"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_sync)
-    p = sub.add_parser("create-from-wave"); p.add_argument("wave"); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--subject"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); p.add_argument("--yes", action="store_true"); p.set_defaults(func=cmd_create_from_wave)
+    p = sub.add_parser("sync"); p.add_argument("wave"); p.add_argument("--ref", type=int); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--text"); add_write_guard_args(p); p.set_defaults(func=cmd_sync)
+    p = sub.add_parser("create-from-wave"); p.add_argument("wave"); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--subject"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_write_guard_args(p); p.set_defaults(func=cmd_create_from_wave)
     return parser
 
 
