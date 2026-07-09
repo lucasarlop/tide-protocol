@@ -13,9 +13,11 @@ Antes de qualquer escrita real no Taiga, o agente deve imprimir o que pretende a
 Fluxo obrigatório para escrita no Taiga:
 
 1. executar o comando com `--dry-run`;
-2. mostrar o plano ao supervisor;
+2. mostrar o plano ao supervisor em formato legível dentro do chat/tela, incluindo conteúdo completo dos campos de texto relevantes;
 3. aguardar aprovação explícita ou ajustes;
 4. executar o mesmo comando com `--yes` e sem `--dry-run` somente após aprovação.
+
+O preview padrão do `tide taiga --dry-run` é legível para decisão humana. Não use `--json` no preview salvo quando o supervisor pedir saída bruta ou houver uma integração máquina-a-máquina.
 
 Operações de leitura permitidas pelo fluxo Taiga: doctor, show, whoami, projects, statuses, members, list, find, get e maturity.
 
