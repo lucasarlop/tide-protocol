@@ -91,54 +91,63 @@ tide taiga create \
   --status doing \
   --due-date today \
   --tag dados \
-  --tag airflow \
   --description-stdin \
   --dry-run <<'EOF'
-Descrição no padrão do time.
+**EU QUERO** [...]
+**COMO** [...]
+**PARA QUE** [...]
+
+**Escopo**
+
+- item necessário
+
+**Fora do Escopo**
+
+- item necessário
 EOF
 ```
 
 Depois da aprovação explícita, repita com `--yes` e sem `--dry-run`.
 
-Criação de Task vinculada a uma User Story:
+Criação de Tasks vinculadas à User Story, em lote:
 
 ```bash
-tide taiga create \
-  --kind task \
-  --userstory-ref 798 \
-  --subject "Título da subtarefa" \
+tide taiga create-tasks \
+  --userstory-ref 819 \
   --status doing \
   --due-date today \
-  --description-stdin \
+  --tasks-stdin \
   --dry-run <<'EOF'
-Descrição curta da subtarefa.
+Criar script ValidatePessoas.py | Critério: script criado e executável em ambiente aprovado.
+Integrar validação pós-Keycloak | Critério: DAG chama validação no checkpoint correto.
+Integrar validação final | Critério: DAG chama validação final após enriquecimentos.
 EOF
 ```
 
+Depois da aprovação explícita, repita com `--yes`.
+
 ## Padrão de descrição para cards
 
-Prefira o padrão curto usado pelo time:
+Use descrição MUITO simples:
 
 ```md
-EU quero <registrar/fazer/ajustar algo>.
-COMO <papel/time/responsável pelo domínio>.
-PARA QUE <resultado esperado/valor para o negócio>.
+**EU QUERO** [...]
+**COMO** [...]
+**PARA QUE** [...]
 
-Resumo do que será feito:
+**Escopo**
 
-- item objetivo 1
-- item objetivo 2
-- item objetivo 3
+- somente se necessário
 
-Pendências operacionais:
+**Fora do Escopo**
 
-- pendência 1
-- pendência 2
+- somente se necessário
 
-<link relevante, se existir>
+[link para commit no GitLab apenas quando a tarefa estiver concluída]
+[resumo com principais considerações apenas quando a tarefa estiver concluída]
 ```
 
-Para trabalho ainda não executado, use “Resumo do que será feito”. Para trabalho já concluído, use “Resumo do que foi feito”.
+Não use diagnóstico longo, lista extensa de evidências, critérios de aceite detalhados, tarefas técnicas completas ou relatório da Wave na descrição inicial do card. Isso deve ficar no contexto local da Wave ou em comentário posterior, se aprovado.
 
 ## Gestão do card
 
@@ -152,11 +161,14 @@ Padrões ao criar:
 
 Se o status `doing` não existir, o CLI não força status default. Consulte `statuses` e proponha uma alternativa.
 
+Para toda User Story com trabalho decomponível, crie também Tasks vinculadas usando `tide taiga create-tasks`. Não deixe a seção Tasks vazia quando o planejamento já tiver passos claros.
+
 ## Escrita e confirmação
 
 Escritas sensíveis exigem confirmação explícita:
 
 - criar item;
+- criar tasks vinculadas;
 - editar descrição;
 - mover status;
 - trocar assignee;
