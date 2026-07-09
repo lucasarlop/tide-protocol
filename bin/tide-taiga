@@ -227,14 +227,66 @@ def text_summary(value: str) -> dict[str, Any]:
     }
 
 
-def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None) -> None:
+def render_value(value: Any) -> str:
+    if value is None:
+        return "—"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+def render_text_block(title: str, value: str) -> list[str]:
+    text = value.rstrip("\n")
+    count = len(value.splitlines())
+    return [
+        f"### {title}",
+        "",
+        f"({len(value)} caracteres, {count} linhas)",
+        "",
+        "```text",
+        text,
+        "```",
+        "",
+    ]
+
+
+def render_payload(payload: dict[str, Any] | None) -> list[str]:
+    if not payload:
+        return ["Nenhum campo informado.", ""]
+    lines: list[str] = []
+    text_fields: list[tuple[str, str]] = []
+    for key, value in payload.items():
+        if key in {"description", "comment"} and isinstance(value, str):
+            text_fields.append((key, value))
+        else:
+            lines.append(f"- **{key}**: {render_value(value)}")
+    if lines:
+        lines.append("")
+    for key, value in text_fields:
+        title = "Descrição" if key == "description" else "Comentário"
+        lines.extend(render_text_block(title, value))
+    return lines
+
+
+def render_target(target: dict[str, Any] | None) -> list[str]:
+    if not target:
+        return ["Novo item.", ""]
+    keys = ["ref", "id", "subject", "status", "assigned_to", "project", "url"]
+    lines = []
+    for key in keys:
+        if key in target and target.get(key) not in {None, ""}:
+            lines.append(f"- **{key}**: {render_value(target.get(key))}")
+    return lines + [""] if lines else ["Item existente identificado, sem campos resumidos disponíveis.", ""]
+
+
+def dry_run_payload(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None) -> dict[str, Any]:
     safe_payload: dict[str, Any] = {}
     for key, value in (payload or {}).items():
         if key in {"description", "comment"} and isinstance(value, str):
             safe_payload[key] = text_summary(value)
         else:
             safe_payload[key] = value
-    print_json({
+    return {
         "dry_run": True,
         "will_write": False,
         "operation": operation,
@@ -243,7 +295,37 @@ def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None =
         "payload": safe_payload,
         "requires_next_step": "Peça autorização explícita ao supervisor; só depois execute novamente com --yes sem --dry-run.",
         "note": note,
-    })
+    }
+
+
+def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None, json_output: bool = False) -> None:
+    if json_output:
+        print_json(dry_run_payload(operation, kind, target=target, payload=payload, note=note))
+        return
+    public = public_kind(canonical_kind(kind))
+    lines = [
+        "# Prévia de alteração no Taiga",
+        "",
+        "Nenhuma alteração foi enviada ao Taiga nesta execução.",
+        "",
+        "## Resumo",
+        "",
+        f"- **Operação**: {operation}",
+        f"- **Tipo**: {public}",
+        "- **Escrita agora**: não",
+    ]
+    if note:
+        lines.append(f"- **Nota**: {note}")
+    lines.extend(["", "## Alvo", ""])
+    lines.extend(render_target(target))
+    lines.extend(["## Campos propostos", ""])
+    lines.extend(render_payload(payload))
+    lines.extend([
+        "## Próximo passo",
+        "",
+        "Revise o conteúdo acima. Se estiver correto, autorize explicitamente e repita o mesmo comando com `--yes` e sem `--dry-run`.",
+    ])
+    print("\n".join(lines).rstrip() + "\n")
 
 
 class TaigaClient:
@@ -413,7 +495,7 @@ def cmd_configure(args: argparse.Namespace) -> None:
     try:
         project_id = int(project_id_raw)
     except ValueError:
-        die("project ID deve be numérico")
+        die("project ID deve ser numérico")
     token = args.token or getpass.getpass("Taiga auth token: ").strip()
     if not token:
         die("token obrigatório")
@@ -532,7 +614,7 @@ def cmd_create(args: argparse.Namespace) -> None:
     if args.status:
         payload["status"] = c.resolve_status(canonical, args.status, project_id)
     if args.dry_run:
-        dry_run_output("create", canonical, payload=payload)
+        dry_run_output("create", canonical, payload=payload, json_output=args.json)
         return
     require_yes(args, "create")
     print_json({"created": compact_entity(c.create_entity(canonical, payload), kind=canonical), "kind": public_kind(canonical)})
@@ -553,7 +635,7 @@ def cmd_comment(args: argparse.Namespace) -> None:
     payload = {"comment": text}
     target = compact_entity(item, kind=canonical)
     if args.dry_run:
-        dry_run_output("comment", canonical, target=target, payload=payload)
+        dry_run_output("comment", canonical, target=target, payload=payload, json_output=args.json)
         return
     require_yes(args, "comment")
     print_json({"commented": compact_entity(c.patch_entity(canonical, int(item["id"]), payload), kind=canonical), "kind": public_kind(canonical)})
@@ -581,7 +663,7 @@ def cmd_update(args: argparse.Namespace) -> None:
         die("nada para atualizar")
     target = compact_entity(item, kind=canonical)
     if args.dry_run:
-        dry_run_output("update", canonical, target=target, payload=payload)
+        dry_run_output("update", canonical, target=target, payload=payload, json_output=args.json)
         return
     require_yes(args, "update")
     print_json({"updated": compact_entity(c.patch_entity(canonical, int(item["id"]), payload), kind=canonical), "kind": public_kind(canonical)})
@@ -672,7 +754,7 @@ def cmd_sync(args: argparse.Namespace) -> None:
     payload = {"comment": text}
     target = compact_entity(item, kind=kind)
     if args.dry_run:
-        dry_run_output("sync-comment", kind, target=target, payload=payload, note=f"Wave: {args.wave}")
+        dry_run_output("sync-comment", kind, target=target, payload=payload, note=f"Wave: {args.wave}", json_output=args.json)
         return
     require_yes(args, "sync")
     updated = c.patch_entity(kind, int(item["id"]), payload)
@@ -699,7 +781,7 @@ def cmd_create_from_wave(args: argparse.Namespace) -> None:
     kind = args.kind or load_config(True).get("default_kind", "task")
     payload = {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or ["tide"]}
     if args.dry_run:
-        dry_run_output("create-from-wave", kind, payload=payload, note=f"Wave: {args.wave}")
+        dry_run_output("create-from-wave", kind, payload=payload, note=f"Wave: {args.wave}", json_output=args.json)
         return
     require_yes(args, "create-from-wave")
     created = c.create_entity(kind, payload)
@@ -713,6 +795,7 @@ def cmd_create_from_wave(args: argparse.Namespace) -> None:
 def add_write_guard_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--dry-run", action="store_true", help="mostra o que seria alterado, sem escrever no Taiga")
     parser.add_argument("--yes", action="store_true", help="confirma escrita no Taiga após aprovação explícita")
+    parser.add_argument("--json", action="store_true", help="no dry-run, imprime JSON bruto em vez de preview legível")
 
 
 def build_parser() -> argparse.ArgumentParser:
