@@ -6,9 +6,11 @@ import argparse
 import getpass
 import json
 import platform
+import re
 import subprocess
 import sys
-from datetime import datetime
+from collections import Counter
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -21,12 +23,15 @@ LOCAL_TOKEN_FILE = CONFIG_DIR / "token"
 KEYCHAIN_SERVICE = "tide-taiga"
 KEYCHAIN_ACCOUNT = "default"
 REQUEST_TIMEOUT = 20
+DEFAULT_KIND = "userstory"
 ENTITY_ALIASES = {
+    "board": "userstories",
     "task": "tasks",
     "tasks": "tasks",
     "userstory": "userstories",
     "userstories": "userstories",
     "us": "userstories",
+    "story": "userstories",
     "issue": "issues",
     "issues": "issues",
 }
@@ -34,6 +39,11 @@ STATUS_ENDPOINT = {
     "tasks": "task-statuses",
     "userstories": "userstory-statuses",
     "issues": "issue-statuses",
+}
+STATUS_ALIASES = {
+    "doing": ["doing", "in progress", "in-progress", "em andamento", "andamento", "em desenvolvimento", "desenvolvimento", "working", "wip"],
+    "done": ["done", "closed", "concluido", "concluído", "finalizado", "feito", "pronto", "resolved", "complete", "completed"],
+    "todo": ["todo", "to do", "open", "new", "nova", "novo", "backlog", "a fazer", "pendente"],
 }
 
 
@@ -164,11 +174,12 @@ def delete_token(config: dict[str, Any]) -> None:
             pass
 
 
-def canonical_kind(kind: str) -> str:
+def canonical_kind(kind: str | None) -> str:
+    raw = kind or DEFAULT_KIND
     try:
-        return ENTITY_ALIASES[str(kind).strip().lower()]
+        return ENTITY_ALIASES[str(raw).strip().lower()]
     except KeyError:
-        die(f"tipo inválido: {kind}. Use task, userstory ou issue")
+        die(f"tipo inválido: {raw}. Use userstory, task ou issue")
 
 
 def public_kind(canonical: str) -> str:
@@ -183,6 +194,15 @@ def safe_extra(entity: dict[str, Any], key: str) -> dict[str, Any]:
     return safe_dict(entity.get(key))
 
 
+def normalize_tag(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, (list, tuple)) and value:
+        value = value[0]
+    text = str(value).strip()
+    return text or None
+
+
 def taiga_web_base(config: dict[str, Any] | None = None) -> str:
     base_url = str((config or load_config(False)).get("base_url", "")).rstrip("/")
     return base_url.rsplit("/api/v1", 1)[0] if "/api/v1" in base_url else base_url
@@ -193,7 +213,7 @@ def entity_url(entity: dict[str, Any], kind: str | None = None, config: dict[str
     project_slug = safe_extra(entity, "project_extra_info").get("slug")
     if not ref or not project_slug:
         return None
-    canonical = canonical_kind(kind or entity.get("type") or "task")
+    canonical = canonical_kind(kind or entity.get("type") or DEFAULT_KIND)
     web_kind = {"tasks": "task", "userstories": "us", "issues": "issue"}.get(canonical, public_kind(canonical))
     base = taiga_web_base(config)
     return f"{base}/project/{project_slug}/{web_kind}/{ref}" if base else None
@@ -216,6 +236,19 @@ def filter_entities(items: list[dict[str, Any]], *, subject: str | None = None, 
     if limit and limit > 0:
         return matched[:limit]
     return matched
+
+
+def parse_due_date(value: str | None, *, no_due_date: bool = False) -> str | None:
+    if no_due_date:
+        return None
+    raw = (value or "today").strip().lower()
+    if raw in {"none", "null", "sem", "no", "no-date"}:
+        return None
+    if raw in {"today", "hoje"}:
+        return date.today().isoformat()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
+        die("data inválida; use today, none ou YYYY-MM-DD")
+    return raw
 
 
 def text_summary(value: str) -> dict[str, Any]:
@@ -336,7 +369,7 @@ class TaigaClient:
             die("base_url ausente; rode `tide taiga configure`")
         self.token = read_token(config)
 
-    def request(self, method: str, endpoint: str, payload: dict[str, Any] | None = None) -> Any:
+    def request(self, method: str, endpoint: str, payload: dict[str, Any] | None = None, *, allow_not_found: bool = False) -> Any:
         endpoint = endpoint.lstrip("/")
         body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = Request(
@@ -356,6 +389,8 @@ class TaigaClient:
                     return True
                 return json.loads(raw)
         except HTTPError as exc:
+            if allow_not_found and exc.code == 404:
+                return None
             raw = exc.read().decode("utf-8", errors="replace")
             try:
                 detail = json.loads(raw)
@@ -365,18 +400,36 @@ class TaigaClient:
         except (URLError, TimeoutError) as exc:
             die(f"falha ao conectar no Taiga: {exc}")
 
+    def request_page(self, endpoint: str) -> tuple[Any, dict[str, str]]:
+        req = Request(
+            f"{self.base_url}/{endpoint.lstrip('/')}",
+            method="GET",
+            headers={"Authorization": f"Bearer {self.token}", "Accept": "application/json"},
+        )
+        try:
+            with urlopen(req, timeout=REQUEST_TIMEOUT) as response:
+                raw = response.read().decode("utf-8")
+                data = json.loads(raw) if raw else []
+                return data, {k.lower(): v for k, v in response.headers.items()}
+        except HTTPError as exc:
+            raw = exc.read().decode("utf-8", errors="replace")
+            die(f"Taiga HTTP {exc.code}: {raw}")
+        except (URLError, TimeoutError) as exc:
+            die(f"falha ao conectar no Taiga: {exc}")
+
     def pages(self, endpoint: str) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         page = 1
         while True:
             sep = "&" if "?" in endpoint else "?"
-            data = self.request("GET", f"{endpoint}{sep}page={page}")
+            data, headers = self.request_page(f"{endpoint}{sep}page={page}&page_size=200")
             if not data:
                 break
             if not isinstance(data, list):
                 die(f"endpoint paginado não retornou lista: {endpoint}")
             out.extend(data)
-            if len(data) < 100:
+            next_header = headers.get("x-pagination-next") or headers.get("x-pagination-next-page")
+            if next_header in {None, "", "None", "null"}:
                 break
             page += 1
         return out
@@ -407,8 +460,12 @@ class TaigaClient:
 
     def resolve_ref(self, kind: str, ref: int, project_id: int | None = None) -> dict[str, Any]:
         canonical = canonical_kind(kind)
+        pid = self.project_id(project_id)
+        by_ref = self.request("GET", f"{canonical}/by_ref?{urlencode({'project': pid, 'ref': ref})}", allow_not_found=True)
+        if isinstance(by_ref, dict):
+            return by_ref
         matches = [
-            item for item in self.list_entities(canonical, project_id)
+            item for item in self.list_entities(canonical, pid)
             if str(item.get("ref")) == str(ref) or str(item.get("id")) == str(ref)
         ]
         if not matches:
@@ -433,12 +490,28 @@ class TaigaClient:
         canonical = canonical_kind(kind)
         return self.pages(f"{STATUS_ENDPOINT[canonical]}?project={self.project_id(project_id)}")
 
-    def resolve_status(self, kind: str, status_name: str, project_id: int | None = None) -> int:
+    def resolve_status_optional(self, kind: str, status_name: str, project_id: int | None = None) -> tuple[int, str] | None:
         statuses = self.statuses(kind, project_id)
-        for status in statuses:
-            if str(status.get("name", "")).strip().lower() == status_name.strip().lower():
-                return int(status["id"])
-        die(f"status não encontrado: {status_name}. Disponíveis: " + ", ".join(str(s.get("name")) for s in statuses))
+        needle = status_name.strip().lower()
+        candidates = [needle, *STATUS_ALIASES.get(needle, [])]
+        for candidate in candidates:
+            for status in statuses:
+                if str(status.get("name", "")).strip().lower() == candidate:
+                    return int(status["id"]), str(status.get("name"))
+        for candidate in candidates:
+            for status in statuses:
+                name = str(status.get("name", "")).strip().lower()
+                slug = str(status.get("slug", "")).strip().lower()
+                if candidate in {slug, name.replace(" ", "-")}: 
+                    return int(status["id"]), str(status.get("name"))
+        return None
+
+    def resolve_status(self, kind: str, status_name: str, project_id: int | None = None) -> tuple[int, str]:
+        found = self.resolve_status_optional(kind, status_name, project_id)
+        if found:
+            return found
+        names = ", ".join(str(s.get("name")) for s in self.statuses(kind, project_id))
+        die(f"status não encontrado: {status_name}. Disponíveis: {names}")
 
     def members(self, project_id: int | None = None) -> list[dict[str, Any]]:
         return self.pages(f"users?project={self.project_id(project_id)}")
@@ -483,13 +556,47 @@ def require_yes(args: argparse.Namespace, action: str) -> None:
         die(f"{action} altera o Taiga; repita com --yes após confirmação explícita")
 
 
+def resolved_kind(args: argparse.Namespace) -> str:
+    return canonical_kind(getattr(args, "kind", None) or DEFAULT_KIND)
+
+
+def resolve_default_assignee(c: TaigaClient, args: argparse.Namespace, project_id: int) -> tuple[int | None, str | None]:
+    if getattr(args, "no_assignee", False):
+        return None, None
+    if getattr(args, "assigned_to", None):
+        return c.resolve_member(args.assigned_to, project_id), args.assigned_to
+    user = c.me()
+    return int(user["id"]), user.get("username") or user.get("full_name") or str(user.get("id"))
+
+
+def apply_default_management_fields(c: TaigaClient, args: argparse.Namespace, canonical: str, project_id: int, payload: dict[str, Any], preview: dict[str, Any]) -> None:
+    due = parse_due_date(getattr(args, "due_date", None), no_due_date=getattr(args, "no_due_date", False))
+    if due:
+        payload["due_date"] = due
+        preview["due_date"] = due
+    assigned_id, assigned_label = resolve_default_assignee(c, args, project_id)
+    if assigned_id is not None:
+        payload["assigned_to"] = assigned_id
+        preview["assigned_to"] = assigned_label or assigned_id
+    if not getattr(args, "no_status", False):
+        status_name = getattr(args, "status", None) or "doing"
+        found = c.resolve_status_optional(canonical, status_name, project_id)
+        if found:
+            payload["status"] = found[0]
+            preview["status"] = found[1]
+        elif getattr(args, "status", None):
+            c.resolve_status(canonical, status_name, project_id)
+        else:
+            preview["status"] = "não definido: status 'doing' não encontrado no projeto"
+
+
 def cmd_configure(args: argparse.Namespace) -> None:
     current = load_config(False)
     base_url = (args.base_url or current.get("base_url") or input("Taiga base URL: ")).strip().rstrip("/")
     project_id_raw = str(args.project_id or current.get("project_id") or input("Taiga project ID: ")).strip()
-    default_kind = str(args.default_kind or current.get("default_kind") or "task").strip()
-    if default_kind not in {"task", "userstory", "issue"}:
-        die("--default-kind deve ser task, userstory ou issue")
+    default_kind = str(args.default_kind or DEFAULT_KIND).strip()
+    if canonical_kind(default_kind) not in {"tasks", "userstories", "issues"}:
+        die("--default-kind deve ser userstory, task ou issue")
     if not base_url:
         die("base URL obrigatória")
     try:
@@ -503,18 +610,21 @@ def cmd_configure(args: argparse.Namespace) -> None:
     write_json(CONFIG_FILE, {
         "base_url": base_url,
         "project_id": project_id,
-        "default_kind": default_kind,
+        "default_kind": public_kind(canonical_kind(default_kind)),
         "token_storage": storage,
         "auto_sync": True,
         "auto_comment_on_finish": True,
         "auto_comment_on_commit": True,
         "auto_move_status": False,
+        "default_due_date": "today",
+        "default_assignee": "me",
+        "default_status": "doing",
     })
     print("Taiga configurado")
     print(f"config : {CONFIG_FILE}")
     print(f"base   : {base_url}")
     print(f"project: {project_id}")
-    print(f"kind   : {default_kind}")
+    print(f"kind   : {public_kind(canonical_kind(default_kind))}")
     print(f"token  : {storage}")
 
 
@@ -572,7 +682,8 @@ def cmd_projects(_args: argparse.Namespace) -> None:
 
 
 def cmd_statuses(args: argparse.Namespace) -> None:
-    print_json([{"id": s.get("id"), "name": s.get("name"), "slug": s.get("slug"), "order": s.get("order")} for s in client().statuses(args.kind, args.project_id)])
+    kind = canonical_kind(args.kind or DEFAULT_KIND)
+    print_json([{"id": s.get("id"), "name": s.get("name"), "slug": s.get("slug"), "order": s.get("order")} for s in client().statuses(kind, args.project_id)])
 
 
 def cmd_members(args: argparse.Namespace) -> None:
@@ -580,25 +691,75 @@ def cmd_members(args: argparse.Namespace) -> None:
 
 
 def cmd_get(args: argparse.Namespace) -> None:
-    item = client().resolve_ref(args.kind, args.ref, args.project_id)
-    print_json(item if args.full else compact_entity(item, kind=args.kind))
+    kind = resolved_kind(args)
+    item = client().resolve_ref(kind, args.ref, args.project_id)
+    print_json(item if args.full else compact_entity(item, kind=kind))
 
 
 def cmd_list(args: argparse.Namespace) -> None:
     c = client()
-    items = c.search_entities(args.kind, subject=args.subject, contains=args.contains, project_id=args.project_id, limit=args.limit)
-    print_json([compact_entity(item, kind=args.kind) for item in items])
+    kind = resolved_kind(args)
+    items = c.search_entities(kind, subject=args.subject, contains=args.contains, project_id=args.project_id, limit=args.limit)
+    print_json([compact_entity(item, kind=kind) for item in items])
 
 
 def cmd_find(args: argparse.Namespace) -> None:
     c = client()
-    items = c.search_entities(args.kind, subject=args.subject, contains=args.contains, project_id=args.project_id, limit=args.limit)
-    print_json({"count": len(items), "matches": [compact_entity(item, kind=args.kind) for item in items]})
+    kind = resolved_kind(args)
+    items = c.search_entities(kind, subject=args.subject, contains=args.contains, project_id=args.project_id, limit=args.limit)
+    print_json({"count": len(items), "matches": [compact_entity(item, kind=kind) for item in items]})
+
+
+def all_kinds_for_tags(kind: str | None) -> list[str]:
+    if not kind or kind == "all":
+        return ["userstories", "tasks", "issues"]
+    return [canonical_kind(kind)]
+
+
+def collect_tags(c: TaigaClient, kinds: list[str], project_id: int | None = None) -> Counter[str]:
+    counter: Counter[str] = Counter()
+    for kind in kinds:
+        for item in c.list_entities(kind, project_id):
+            for tag in item.get("tags") or []:
+                normalized = normalize_tag(tag)
+                if normalized:
+                    counter[normalized] += 1
+    return counter
+
+
+def cmd_tags(args: argparse.Namespace) -> None:
+    c = client()
+    counter = collect_tags(c, all_kinds_for_tags(args.kind), args.project_id)
+    items = [{"name": name, "count": count} for name, count in counter.most_common()]
+    if args.contains:
+        needle = args.contains.lower()
+        items = [item for item in items if needle in item["name"].lower()]
+    if args.limit:
+        items = items[:args.limit]
+    print_json({"count": len(items), "tags": items})
+
+
+def cmd_suggest_tags(args: argparse.Namespace) -> None:
+    text = args.text or ""
+    if args.text_stdin:
+        text = read_stdin_text("texto para sugerir tags")
+    text = f"{args.subject or ''}\n{text}".lower()
+    c = client()
+    counter = collect_tags(c, all_kinds_for_tags(args.kind), args.project_id)
+    existing = [name for name in counter if name.lower() in text]
+    candidate_pool = re.findall(r"[a-zA-ZÀ-ÿ0-9_\-]{3,}", text)
+    candidates = []
+    stop = {"para", "como", "com", "dos", "das", "uma", "por", "que", "the", "and", "pipeline", "tabela"}
+    for token in candidate_pool:
+        token = token.strip("_-.").lower().replace("_", "-")
+        if token and token not in stop and token not in candidates and token not in [x.lower() for x in existing]:
+            candidates.append(token)
+    print_json({"existing_matches": sorted(existing), "new_candidates": candidates[:10]})
 
 
 def cmd_create(args: argparse.Namespace) -> None:
     c = client()
-    canonical = canonical_kind(args.kind)
+    canonical = resolved_kind(args)
     project_id = c.project_id(args.project_id)
     if args.description_stdin:
         description = read_stdin_text("descrição")
@@ -607,14 +768,14 @@ def cmd_create(args: argparse.Namespace) -> None:
     else:
         description = args.description or ""
     payload: dict[str, Any] = {"project": project_id, "subject": args.subject, "description": description, "tags": args.tag or []}
+    preview = dict(payload)
     if canonical == "tasks" and args.userstory_ref:
-        payload["user_story"] = c.resolve_ref("userstory", args.userstory_ref, project_id)["id"]
-    if args.assigned_to:
-        payload["assigned_to"] = c.resolve_member(args.assigned_to, project_id)
-    if args.status:
-        payload["status"] = c.resolve_status(canonical, args.status, project_id)
+        us = c.resolve_ref("userstory", args.userstory_ref, project_id)
+        payload["user_story"] = us["id"]
+        preview["user_story"] = f"#{us.get('ref')} — {us.get('subject')}"
+    apply_default_management_fields(c, args, canonical, project_id, payload, preview)
     if args.dry_run:
-        dry_run_output("create", canonical, payload=payload, json_output=args.json)
+        dry_run_output("create", canonical, payload=preview, json_output=args.json)
         return
     require_yes(args, "create")
     print_json({"created": compact_entity(c.create_entity(canonical, payload), kind=canonical), "kind": public_kind(canonical)})
@@ -630,7 +791,7 @@ def cmd_comment(args: argparse.Namespace) -> None:
     if not text.strip():
         die("comentário vazio")
     c = client()
-    canonical = canonical_kind(args.kind)
+    canonical = resolved_kind(args)
     item = c.resolve_ref(canonical, args.ref, args.project_id)
     payload = {"comment": text}
     target = compact_entity(item, kind=canonical)
@@ -643,27 +804,44 @@ def cmd_comment(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     c = client()
-    canonical = canonical_kind(args.kind)
+    canonical = resolved_kind(args)
     item = c.resolve_ref(canonical, args.ref, args.project_id)
     project_id = c.project_id(args.project_id)
     payload: dict[str, Any] = {}
+    preview: dict[str, Any] = {}
     if args.subject:
         payload["subject"] = args.subject
+        preview["subject"] = args.subject
     if args.description_stdin:
         payload["description"] = read_stdin_text("descrição")
+        preview["description"] = payload["description"]
     elif args.description_file:
         payload["description"] = Path(args.description_file).read_text(encoding="utf-8")
+        preview["description"] = payload["description"]
     elif args.description is not None:
         payload["description"] = args.description
+        preview["description"] = args.description
     if args.status:
-        payload["status"] = c.resolve_status(canonical, args.status, project_id)
+        status_id, status_label = c.resolve_status(canonical, args.status, project_id)
+        payload["status"] = status_id
+        preview["status"] = status_label
     if args.assigned_to:
         payload["assigned_to"] = c.resolve_member(args.assigned_to, project_id)
+        preview["assigned_to"] = args.assigned_to
+    if args.no_assignee:
+        payload["assigned_to"] = None
+        preview["assigned_to"] = "—"
+    if args.due_date or args.no_due_date:
+        payload["due_date"] = parse_due_date(args.due_date, no_due_date=args.no_due_date)
+        preview["due_date"] = payload["due_date"] or "—"
+    if args.tag:
+        payload["tags"] = args.tag
+        preview["tags"] = args.tag
     if not payload:
         die("nada para atualizar")
     target = compact_entity(item, kind=canonical)
     if args.dry_run:
-        dry_run_output("update", canonical, target=target, payload=payload, json_output=args.json)
+        dry_run_output("update", canonical, target=target, payload=preview, json_output=args.json)
         return
     require_yes(args, "update")
     print_json({"updated": compact_entity(c.patch_entity(canonical, int(item["id"]), payload), kind=canonical), "kind": public_kind(canonical)})
@@ -676,19 +854,17 @@ def maturity_findings(entity: dict[str, Any]) -> list[dict[str, str]]:
     checks = [
         ("objetivo", bool(subject and len(subject) >= 8), "título/objetivo claro"),
         ("escopo", any(w in text for w in ["escopo", "scope", "deve", "implementar", "entregar"]), "escopo descrito"),
-        ("fora_de_escopo", any(w in text for w in ["fora de escopo", "não inclui", "não deve", "limite"]), "limite ou fora de escopo explícito"),
-        ("criterios", any(w in text for w in ["critério", "criterio", "aceite", "acceptance", "dado", "quando", "então"]), "critérios de aceite"),
-        ("validacao", any(w in text for w in ["validar", "validação", "teste", "pytest", "evidência", "evidencia"]), "validação esperada"),
-        ("risco", any(w in text for w in ["risco", "hardgate", "produção", "dados reais", "segurança"]), "riscos/hardgates conhecidos"),
+        ("aceite", any(w in text for w in ["aceite", "critério", "criterio", "validar", "teste"]), "critérios de aceite ou validação"),
     ]
     return [{"name": name, "status": "ok" if ok else "missing", "description": desc} for name, ok, desc in checks]
 
 
 def cmd_maturity(args: argparse.Namespace) -> None:
-    entity = client().resolve_ref(args.kind, args.ref, args.project_id)
+    canonical = resolved_kind(args)
+    entity = client().resolve_ref(canonical, args.ref, args.project_id)
     findings = maturity_findings(entity)
     missing = [item for item in findings if item["status"] != "ok"]
-    print_json({"ref": entity.get("ref"), "id": entity.get("id"), "subject": entity.get("subject"), "ready_for_wave": not missing, "checks": findings, "recommendation": "pronta para Wave" if not missing else "refinar antes da Wave"})
+    print_json({"ref": entity.get("ref"), "id": entity.get("id"), "subject": entity.get("subject"), "ready_for_work": not missing, "checks": findings, "recommendation": "pronta para trabalho" if not missing else "refinar antes do trabalho"})
 
 
 def repo_root() -> Path:
@@ -713,14 +889,15 @@ def write_wave(wave_id: str, wave: dict[str, Any]) -> None:
 def cmd_link(args: argparse.Namespace) -> None:
     wave = read_wave(args.wave)
     config = load_config(True)
-    taiga = {"enabled": True, "ref": args.ref, "kind": public_kind(canonical_kind(args.kind or config.get("default_kind", "task"))), "project_id": int(args.project_id or config.get("project_id")), "auto_sync": not args.no_auto_sync, "created_by_tide": args.created_by_tide, "last_sync": None}
+    kind = public_kind(canonical_kind(args.kind or DEFAULT_KIND))
+    taiga = {"enabled": True, "ref": args.ref, "kind": kind, "project_id": int(args.project_id or config.get("project_id")), "auto_sync": not args.no_auto_sync, "created_by_tide": args.created_by_tide, "last_sync": None}
     wave["taiga"] = taiga
     write_wave(args.wave, wave)
     print_json({"linked": args.wave, "taiga": taiga})
 
 
 def wave_summary(wave: dict[str, Any]) -> str:
-    lines = [f"Tide — {wave.get('id')}", "", f"Status: {wave.get('status', 'unknown')}", f"Título: {wave.get('title', '')}"]
+    lines = [f"Status: {wave.get('status', 'unknown')}", f"Título: {wave.get('title', '')}"]
     if wave.get("result"):
         lines.extend(["", "Resumo:", f"- {wave.get('result')}"])
     validations = wave.get("validations") or []
@@ -747,14 +924,14 @@ def cmd_sync(args: argparse.Namespace) -> None:
     if not taiga and not args.ref:
         die("Wave sem vínculo Taiga; use `tide taiga link` ou informe --ref/--kind")
     ref = args.ref or int(taiga.get("ref"))
-    kind = args.kind or taiga.get("kind") or load_config(True).get("default_kind", "task")
+    kind = args.kind or taiga.get("kind") or DEFAULT_KIND
     text = args.text or wave_summary(wave)
     c = client()
     item = c.resolve_ref(kind, int(ref), args.project_id or taiga.get("project_id"))
     payload = {"comment": text}
     target = compact_entity(item, kind=kind)
     if args.dry_run:
-        dry_run_output("sync-comment", kind, target=target, payload=payload, note=f"Wave: {args.wave}", json_output=args.json)
+        dry_run_output("sync-comment", kind, target=target, payload=payload, note=f"Wave local: {args.wave}", json_output=args.json)
         return
     require_yes(args, "sync")
     updated = c.patch_entity(kind, int(item["id"]), payload)
@@ -765,31 +942,42 @@ def cmd_sync(args: argparse.Namespace) -> None:
 
 
 def description_from_wave(wave: dict[str, Any]) -> str:
-    lines = [f"# {wave.get('title', wave.get('id'))}", "", f"Wave: {wave.get('id')}", f"Status Tide: {wave.get('status', 'unknown')}", "", "## Intenção", str(wave.get("intent", wave.get("title", ""))), "", "## Validação planejada", str(wave.get("validation_plan", ""))]
-    if wave.get("result"):
-        lines.extend(["", "## Resultado", str(wave.get("result"))])
-    if wave.get("validations"):
-        lines.extend(["", "## Evidências"])
-        for item in wave.get("validations") or []:
-            lines.append(f"- {item.get('summary', '')} ({item.get('result', '')})" if isinstance(item, dict) else f"- {item}")
-    return "\n".join(lines).strip() + "\n"
+    title = str(wave.get("title") or "").strip()
+    intent = str(wave.get("intent") or title).strip()
+    validation = str(wave.get("validation_plan") or "Validação local proporcional ao risco.").strip()
+    return f"## Objetivo\n{intent}\n\n## Aceite\n- {validation}\n\n## Observações\n- Execução em ambiente real, deploy ou reprocessamento exigem aprovação separada.\n"
 
 
 def cmd_create_from_wave(args: argparse.Namespace) -> None:
     wave = read_wave(args.wave)
     c = client()
-    kind = args.kind or load_config(True).get("default_kind", "task")
-    payload = {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or ["tide"]}
+    canonical = resolved_kind(args)
+    payload = {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or []}
+    preview = dict(payload)
+    apply_default_management_fields(c, args, canonical, c.project_id(args.project_id), payload, preview)
     if args.dry_run:
-        dry_run_output("create-from-wave", kind, payload=payload, note=f"Wave: {args.wave}", json_output=args.json)
+        dry_run_output("create-from-wave", canonical, payload=preview, note=f"Wave local: {args.wave}", json_output=args.json)
         return
     require_yes(args, "create-from-wave")
-    created = c.create_entity(kind, payload)
+    created = c.create_entity(canonical, payload)
     ref = int(created.get("ref") or created.get("id"))
-    taiga = {"enabled": True, "ref": ref, "kind": public_kind(canonical_kind(kind)), "project_id": c.project_id(args.project_id), "auto_sync": True, "created_by_tide": True, "last_sync": None}
+    taiga = {"enabled": True, "ref": ref, "kind": public_kind(canonical_kind(canonical)), "project_id": c.project_id(args.project_id), "auto_sync": True, "created_by_tide": True, "last_sync": None}
     wave["taiga"] = taiga
     write_wave(args.wave, wave)
-    print_json({"created": compact_entity(created, kind=kind), "linked": args.wave, "taiga": taiga})
+    print_json({"created": compact_entity(created, kind=canonical), "linked": args.wave, "taiga": taiga})
+
+
+def add_kind_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--kind", choices=["board", "userstory", "task", "issue"], default=DEFAULT_KIND)
+
+
+def add_management_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--status", help="status exato ou alias: doing, done, todo")
+    parser.add_argument("--no-status", action="store_true", help="não define status inicial/default")
+    parser.add_argument("--assigned-to", help="username/nome do responsável; default: usuário atual")
+    parser.add_argument("--no-assignee", action="store_true", help="não associa responsável")
+    parser.add_argument("--due-date", help="today, none ou YYYY-MM-DD; default: today")
+    parser.add_argument("--no-due-date", action="store_true", help="não define due_date")
 
 
 def add_write_guard_args(parser: argparse.ArgumentParser) -> None:
@@ -801,22 +989,24 @@ def add_write_guard_args(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="tide taiga", description="Integração opcional Tide ↔ Taiga")
     sub = parser.add_subparsers(dest="command")
-    p = sub.add_parser("configure"); p.add_argument("--base-url"); p.add_argument("--project-id", type=int); p.add_argument("--default-kind", choices=["task", "userstory", "issue"]); p.add_argument("--token"); p.add_argument("--allow-local-token", action="store_true"); p.set_defaults(func=cmd_configure)
+    p = sub.add_parser("configure"); p.add_argument("--base-url"); p.add_argument("--project-id", type=int); p.add_argument("--default-kind", choices=["userstory", "task", "issue"], default=DEFAULT_KIND); p.add_argument("--token"); p.add_argument("--allow-local-token", action="store_true"); p.set_defaults(func=cmd_configure)
     sub.add_parser("doctor").set_defaults(func=cmd_doctor); sub.add_parser("show").set_defaults(func=cmd_show); sub.add_parser("logout").set_defaults(func=cmd_logout)
     p = sub.add_parser("whoami"); p.add_argument("--json", action="store_true"); p.set_defaults(func=cmd_whoami)
     sub.add_parser("projects").set_defaults(func=cmd_projects)
-    p = sub.add_parser("statuses"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_statuses)
+    p = sub.add_parser("statuses"); add_kind_arg(p); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_statuses)
     p = sub.add_parser("members"); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_members)
-    p = sub.add_parser("get"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_get)
-    p = sub.add_parser("list"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_list)
-    p = sub.add_parser("find"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--project-id", type=int); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_find)
-    p = sub.add_parser("create"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--tag", action="append"); add_write_guard_args(p); p.set_defaults(func=cmd_create)
-    p = sub.add_parser("comment"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_comment)
-    p = sub.add_parser("update"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--status"); p.add_argument("--assigned-to"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_update)
-    p = sub.add_parser("maturity"); p.add_argument("--kind", default="task", choices=["task", "userstory", "issue"]); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_maturity)
-    p = sub.add_parser("link"); p.add_argument("wave"); p.add_argument("--ref", type=int, required=True); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--created-by-tide", action="store_true"); p.add_argument("--no-auto-sync", action="store_true"); p.set_defaults(func=cmd_link)
-    p = sub.add_parser("sync"); p.add_argument("wave"); p.add_argument("--ref", type=int); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--project-id", type=int); p.add_argument("--text"); add_write_guard_args(p); p.set_defaults(func=cmd_sync)
-    p = sub.add_parser("create-from-wave"); p.add_argument("wave"); p.add_argument("--kind", choices=["task", "userstory", "issue"]); p.add_argument("--subject"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_write_guard_args(p); p.set_defaults(func=cmd_create_from_wave)
+    p = sub.add_parser("tags"); p.add_argument("--kind", choices=["all", "userstory", "task", "issue"], default="all"); p.add_argument("--contains"); p.add_argument("--limit", type=int); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_tags)
+    p = sub.add_parser("suggest-tags"); p.add_argument("--kind", choices=["all", "userstory", "task", "issue"], default="all"); p.add_argument("--subject"); p.add_argument("--text"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_suggest_tags)
+    p = sub.add_parser("get"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.add_argument("--full", action="store_true"); p.set_defaults(func=cmd_get)
+    p = sub.add_parser("list"); add_kind_arg(p); p.add_argument("--project-id", type=int); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_list)
+    p = sub.add_parser("find"); add_kind_arg(p); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--project-id", type=int); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_find)
+    p = sub.add_parser("create"); add_kind_arg(p); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_create)
+    p = sub.add_parser("comment"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_comment)
+    p = sub.add_parser("update"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_update)
+    p = sub.add_parser("maturity"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_maturity)
+    p = sub.add_parser("link"); p.add_argument("wave"); p.add_argument("--ref", type=int, required=True); add_kind_arg(p); p.add_argument("--project-id", type=int); p.add_argument("--created-by-tide", action="store_true"); p.add_argument("--no-auto-sync", action="store_true"); p.set_defaults(func=cmd_link)
+    p = sub.add_parser("sync"); p.add_argument("wave"); p.add_argument("--ref", type=int); add_kind_arg(p); p.add_argument("--project-id", type=int); p.add_argument("--text"); add_write_guard_args(p); p.set_defaults(func=cmd_sync)
+    p = sub.add_parser("create-from-wave"); p.add_argument("wave"); add_kind_arg(p); p.add_argument("--subject"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_create_from_wave)
     return parser
 
 
