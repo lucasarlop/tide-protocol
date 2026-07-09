@@ -26,12 +26,12 @@ REQUEST_TIMEOUT = 20
 DEFAULT_KIND = "userstory"
 ENTITY_ALIASES = {
     "board": "userstories",
-    "task": "tasks",
-    "tasks": "tasks",
+    "story": "userstories",
+    "us": "userstories",
     "userstory": "userstories",
     "userstories": "userstories",
-    "us": "userstories",
-    "story": "userstories",
+    "task": "tasks",
+    "tasks": "tasks",
     "issue": "issues",
     "issues": "issues",
 }
@@ -50,12 +50,6 @@ STATUS_ALIASES = {
 def die(message: str, code: int = 1) -> None:
     print(f"erro: {message}", file=sys.stderr)
     raise SystemExit(code)
-
-
-def status_line(ok: bool, label: str, detail: str = "") -> None:
-    mark = "ok" if ok else "warn"
-    suffix = f" — {detail}" if detail else ""
-    print(f"[{mark}] {label}{suffix}")
 
 
 def command_output(args: list[str]) -> tuple[int, str]:
@@ -96,6 +90,10 @@ def write_json(path: Path, data: Any) -> None:
         path.chmod(0o600)
     except OSError:
         pass
+
+
+def print_json(data: Any) -> None:
+    print(json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def load_config(required: bool = True) -> dict[str, Any]:
@@ -160,20 +158,6 @@ def token_exists(config: dict[str, Any]) -> bool:
         return False
 
 
-def delete_token(config: dict[str, Any]) -> None:
-    if config.get("token_storage") == "macos-keychain" and keychain_available():
-        subprocess.call([
-            "security", "delete-generic-password",
-            "-a", KEYCHAIN_ACCOUNT,
-            "-s", KEYCHAIN_SERVICE,
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    if LOCAL_TOKEN_FILE.exists():
-        try:
-            LOCAL_TOKEN_FILE.unlink()
-        except OSError:
-            pass
-
-
 def canonical_kind(kind: str | None) -> str:
     raw = kind or DEFAULT_KIND
     try:
@@ -219,25 +203,6 @@ def entity_url(entity: dict[str, Any], kind: str | None = None, config: dict[str
     return f"{base}/project/{project_slug}/{web_kind}/{ref}" if base else None
 
 
-def entity_matches(item: dict[str, Any], *, subject: str | None = None, contains: str | None = None) -> bool:
-    item_subject = str(item.get("subject") or "")
-    description = str(item.get("description") or "")
-    if subject and item_subject != subject:
-        return False
-    if contains:
-        needle = contains.lower()
-        if needle not in item_subject.lower() and needle not in description.lower():
-            return False
-    return True
-
-
-def filter_entities(items: list[dict[str, Any]], *, subject: str | None = None, contains: str | None = None, limit: int | None = None) -> list[dict[str, Any]]:
-    matched = [item for item in items if entity_matches(item, subject=subject, contains=contains)]
-    if limit and limit > 0:
-        return matched[:limit]
-    return matched
-
-
 def parse_due_date(value: str | None, *, no_due_date: bool = False) -> str | None:
     if no_due_date:
         return None
@@ -249,15 +214,6 @@ def parse_due_date(value: str | None, *, no_due_date: bool = False) -> str | Non
     if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw):
         die("data inválida; use today, none ou YYYY-MM-DD")
     return raw
-
-
-def text_summary(value: str) -> dict[str, Any]:
-    lines = value.splitlines()
-    return {
-        "length": len(value),
-        "lines": len(lines),
-        "preview": value if len(value) <= 1200 else value[:1200] + "\n...[truncated]",
-    }
 
 
 def render_value(value: Any) -> str:
@@ -312,26 +268,40 @@ def render_target(target: dict[str, Any] | None) -> list[str]:
     return lines + [""] if lines else ["Item existente identificado, sem campos resumidos disponíveis.", ""]
 
 
-def dry_run_payload(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None) -> dict[str, Any]:
-    safe_payload: dict[str, Any] = {}
-    for key, value in (payload or {}).items():
-        if key in {"description", "comment"} and isinstance(value, str):
-            safe_payload[key] = text_summary(value)
-        else:
-            safe_payload[key] = value
+def text_summary(value: str) -> dict[str, Any]:
+    lines = value.splitlines()
+    return {
+        "length": len(value),
+        "lines": len(lines),
+        "preview": value if len(value) <= 1200 else value[:1200] + "\n...[truncated]",
+    }
+
+
+def dry_run_payload(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | list[Any] | None = None, note: str | None = None) -> dict[str, Any]:
+    def safe_payload_item(item: Any) -> Any:
+        if not isinstance(item, dict):
+            return item
+        safe: dict[str, Any] = {}
+        for key, value in item.items():
+            if key in {"description", "comment"} and isinstance(value, str):
+                safe[key] = text_summary(value)
+            else:
+                safe[key] = value
+        return safe
+
     return {
         "dry_run": True,
         "will_write": False,
         "operation": operation,
         "kind": public_kind(canonical_kind(kind)),
         "target": target,
-        "payload": safe_payload,
+        "payload": [safe_payload_item(x) for x in payload] if isinstance(payload, list) else safe_payload_item(payload or {}),
         "requires_next_step": "Peça autorização explícita ao supervisor; só depois execute novamente com --yes sem --dry-run.",
         "note": note,
     }
 
 
-def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | None = None, note: str | None = None, json_output: bool = False) -> None:
+def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None = None, payload: dict[str, Any] | list[Any] | None = None, note: str | None = None, json_output: bool = False) -> None:
     if json_output:
         print_json(dry_run_payload(operation, kind, target=target, payload=payload, note=note))
         return
@@ -352,7 +322,12 @@ def dry_run_output(operation: str, kind: str, *, target: dict[str, Any] | None =
     lines.extend(["", "## Alvo", ""])
     lines.extend(render_target(target))
     lines.extend(["## Campos propostos", ""])
-    lines.extend(render_payload(payload))
+    if isinstance(payload, list):
+        for idx, item in enumerate(payload, 1):
+            lines.extend([f"### Item {idx}", ""])
+            lines.extend(render_payload(item if isinstance(item, dict) else {"value": item}))
+    else:
+        lines.extend(render_payload(payload if isinstance(payload, dict) else {}))
     lines.extend([
         "## Próximo passo",
         "",
@@ -456,7 +431,8 @@ class TaigaClient:
         endpoint = f"{canonical}?project={self.project_id(project_id)}"
         if contains and not subject:
             endpoint += "&" + urlencode({"q": contains})
-        return filter_entities(self.pages(endpoint), subject=subject, contains=contains, limit=limit)
+        items = [item for item in self.pages(endpoint) if entity_matches(item, subject=subject, contains=contains)]
+        return items[:limit] if limit and limit > 0 else items
 
     def resolve_ref(self, kind: str, ref: int, project_id: int | None = None) -> dict[str, Any]:
         canonical = canonical_kind(kind)
@@ -529,10 +505,6 @@ def client() -> TaigaClient:
     return TaigaClient(load_config(True))
 
 
-def print_json(data: Any) -> None:
-    print(json.dumps(data, indent=2, ensure_ascii=False))
-
-
 def compact_entity(entity: dict[str, Any], *, kind: str | None = None) -> dict[str, Any]:
     status_info = safe_extra(entity, "status_extra_info")
     assignee_info = safe_extra(entity, "assigned_to_extra_info")
@@ -595,8 +567,7 @@ def cmd_configure(args: argparse.Namespace) -> None:
     base_url = (args.base_url or current.get("base_url") or input("Taiga base URL: ")).strip().rstrip("/")
     project_id_raw = str(args.project_id or current.get("project_id") or input("Taiga project ID: ")).strip()
     default_kind = str(args.default_kind or DEFAULT_KIND).strip()
-    if canonical_kind(default_kind) not in {"tasks", "userstories", "issues"}:
-        die("--default-kind deve ser userstory, task ou issue")
+    canonical_kind(default_kind)
     if not base_url:
         die("base URL obrigatória")
     try:
@@ -633,15 +604,15 @@ def cmd_doctor(_args: argparse.Namespace) -> None:
     print("Tide Taiga Doctor")
     print(f"config : {CONFIG_FILE}")
     if not config:
-        status_line(False, "config Taiga", "não configurado; rode `tide taiga configure`")
+        print("[warn] config Taiga — não configurado; rode `tide taiga configure`")
         raise SystemExit(1)
     ok = True
     for key in ["base_url", "project_id", "default_kind", "token_storage"]:
         exists = key in config and config[key] not in {"", None}
-        status_line(exists, key, "ok" if exists else "ausente")
+        print(f"[{'ok' if exists else 'warn'}] {key}")
         ok = ok and exists
     has_token = token_exists(config)
-    status_line(has_token, "token", str(config.get("token_storage", "não configurado")))
+    print(f"[{'ok' if has_token else 'warn'}] token — {config.get('token_storage', 'não configurado')}")
     ok = ok and has_token
     print(f"base   : {config.get('base_url', '')}")
     print(f"project: {config.get('project_id', '')}")
@@ -661,7 +632,10 @@ def cmd_show(_args: argparse.Namespace) -> None:
 
 def cmd_logout(_args: argparse.Namespace) -> None:
     config = load_config(False)
-    delete_token(config)
+    if config.get("token_storage") == "macos-keychain" and keychain_available():
+        subprocess.call(["security", "delete-generic-password", "-a", KEYCHAIN_ACCOUNT, "-s", KEYCHAIN_SERVICE], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if LOCAL_TOKEN_FILE.exists():
+        LOCAL_TOKEN_FILE.unlink()
     if CONFIG_FILE.exists():
         CONFIG_FILE.unlink()
     print("Taiga removido da configuração local")
@@ -748,13 +722,24 @@ def cmd_suggest_tags(args: argparse.Namespace) -> None:
     counter = collect_tags(c, all_kinds_for_tags(args.kind), args.project_id)
     existing = [name for name in counter if name.lower() in text]
     candidate_pool = re.findall(r"[a-zA-ZÀ-ÿ0-9_\-]{3,}", text)
-    candidates = []
+    candidates: list[str] = []
     stop = {"para", "como", "com", "dos", "das", "uma", "por", "que", "the", "and", "pipeline", "tabela"}
     for token in candidate_pool:
         token = token.strip("_-.").lower().replace("_", "-")
         if token and token not in stop and token not in candidates and token not in [x.lower() for x in existing]:
             candidates.append(token)
     print_json({"existing_matches": sorted(existing), "new_candidates": candidates[:10]})
+
+
+def build_base_payload(c: TaigaClient, args: argparse.Namespace, canonical: str, project_id: int, description: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    payload: dict[str, Any] = {"project": project_id, "subject": args.subject, "description": description, "tags": args.tag or []}
+    preview = dict(payload)
+    if canonical == "tasks" and getattr(args, "userstory_ref", None):
+        us = c.resolve_ref("userstory", args.userstory_ref, project_id)
+        payload["user_story"] = us["id"]
+        preview["user_story"] = f"#{us.get('ref')} — {us.get('subject')}"
+    apply_default_management_fields(c, args, canonical, project_id, payload, preview)
+    return payload, preview
 
 
 def cmd_create(args: argparse.Namespace) -> None:
@@ -767,18 +752,73 @@ def cmd_create(args: argparse.Namespace) -> None:
         description = Path(args.description_file).read_text(encoding="utf-8")
     else:
         description = args.description or ""
-    payload: dict[str, Any] = {"project": project_id, "subject": args.subject, "description": description, "tags": args.tag or []}
-    preview = dict(payload)
-    if canonical == "tasks" and args.userstory_ref:
-        us = c.resolve_ref("userstory", args.userstory_ref, project_id)
-        payload["user_story"] = us["id"]
-        preview["user_story"] = f"#{us.get('ref')} — {us.get('subject')}"
-    apply_default_management_fields(c, args, canonical, project_id, payload, preview)
+    payload, preview = build_base_payload(c, args, canonical, project_id, description)
     if args.dry_run:
         dry_run_output("create", canonical, payload=preview, json_output=args.json)
         return
     require_yes(args, "create")
     print_json({"created": compact_entity(c.create_entity(canonical, payload), kind=canonical), "kind": public_kind(canonical)})
+
+
+def parse_task_line(line: str) -> tuple[str, str]:
+    clean = line.strip()
+    clean = re.sub(r"^[-*]\s+", "", clean)
+    if not clean:
+        return "", ""
+    for sep in [" | ", " :: ", " — ", " - "]:
+        if sep in clean:
+            subject, description = clean.split(sep, 1)
+            return subject.strip(), description.strip()
+    return clean, ""
+
+
+def parse_tasks_input(args: argparse.Namespace) -> list[dict[str, str]]:
+    raw_items = list(args.task or [])
+    if args.tasks_stdin:
+        raw_items.extend(read_stdin_text("tasks").splitlines())
+    tasks = []
+    for line in raw_items:
+        subject, description = parse_task_line(line)
+        if subject:
+            tasks.append({"subject": subject, "description": description})
+    if not tasks:
+        die("nenhuma task informada; use --task ou --tasks-stdin")
+    return tasks
+
+
+def cmd_create_tasks(args: argparse.Namespace) -> None:
+    c = client()
+    project_id = c.project_id(args.project_id)
+    userstory = c.resolve_ref("userstory", args.userstory_ref, project_id)
+    tasks = parse_tasks_input(args)
+    payloads: list[dict[str, Any]] = []
+    previews: list[dict[str, Any]] = []
+    for item in tasks:
+        task_args = argparse.Namespace(**vars(args))
+        task_args.subject = item["subject"]
+        payload = {
+            "project": project_id,
+            "user_story": userstory["id"],
+            "subject": item["subject"],
+            "description": item["description"],
+            "tags": args.tag or [],
+        }
+        preview = {
+            "user_story": f"#{userstory.get('ref')} — {userstory.get('subject')}",
+            "subject": item["subject"],
+            "description": item["description"],
+            "tags": args.tag or [],
+        }
+        apply_default_management_fields(c, task_args, "tasks", project_id, payload, preview)
+        payloads.append(payload)
+        previews.append(preview)
+    target = compact_entity(userstory, kind="userstory")
+    if args.dry_run:
+        dry_run_output("create-tasks", "task", target=target, payload=previews, json_output=args.json)
+        return
+    require_yes(args, "create-tasks")
+    created = [compact_entity(c.create_entity("task", payload), kind="task") for payload in payloads]
+    print_json({"created_count": len(created), "userstory": target, "tasks": created})
 
 
 def cmd_comment(args: argparse.Namespace) -> None:
@@ -854,7 +894,7 @@ def maturity_findings(entity: dict[str, Any]) -> list[dict[str, str]]:
     checks = [
         ("objetivo", bool(subject and len(subject) >= 8), "título/objetivo claro"),
         ("escopo", any(w in text for w in ["escopo", "scope", "deve", "implementar", "entregar"]), "escopo descrito"),
-        ("aceite", any(w in text for w in ["aceite", "critério", "criterio", "validar", "teste"]), "critérios de aceite ou validação"),
+        ("valor", any(w in text for w in ["para que", "valor", "benefício", "beneficio", "resultado"]), "valor/resultado esperado"),
     ]
     return [{"name": name, "status": "ok" if ok else "missing", "description": desc} for name, ok, desc in checks]
 
@@ -942,19 +982,15 @@ def cmd_sync(args: argparse.Namespace) -> None:
 
 
 def description_from_wave(wave: dict[str, Any]) -> str:
-    title = str(wave.get("title") or "").strip()
-    intent = str(wave.get("intent") or title).strip()
-    validation = str(wave.get("validation_plan") or "Validação local proporcional ao risco.").strip()
-    return f"## Objetivo\n{intent}\n\n## Aceite\n- {validation}\n\n## Observações\n- Execução em ambiente real, deploy ou reprocessamento exigem aprovação separada.\n"
+    intent = str(wave.get("intent") or wave.get("title") or "realizar ajuste solicitado").strip()
+    return f"**EU QUERO** {intent}.\n**COMO** time responsável pelo domínio afetado.\n**PARA QUE** a entrega seja registrada e acompanhada no board.\n"
 
 
 def cmd_create_from_wave(args: argparse.Namespace) -> None:
     wave = read_wave(args.wave)
     c = client()
     canonical = resolved_kind(args)
-    payload = {"project": c.project_id(args.project_id), "subject": args.subject or wave.get("title") or args.wave, "description": description_from_wave(wave), "tags": args.tag or []}
-    preview = dict(payload)
-    apply_default_management_fields(c, args, canonical, c.project_id(args.project_id), payload, preview)
+    payload, preview = build_base_payload(c, argparse.Namespace(**{**vars(args), "subject": args.subject or wave.get("title") or args.wave, "userstory_ref": None}), canonical, c.project_id(args.project_id), description_from_wave(wave))
     if args.dry_run:
         dry_run_output("create-from-wave", canonical, payload=preview, note=f"Wave local: {args.wave}", json_output=args.json)
         return
@@ -1001,6 +1037,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("list"); add_kind_arg(p); p.add_argument("--project-id", type=int); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_list)
     p = sub.add_parser("find"); add_kind_arg(p); p.add_argument("--subject"); p.add_argument("--contains"); p.add_argument("--project-id", type=int); p.add_argument("--limit", type=int); p.set_defaults(func=cmd_find)
     p = sub.add_parser("create"); add_kind_arg(p); p.add_argument("--subject", required=True); p.add_argument("--description", default=""); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--userstory-ref", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_create)
+    p = sub.add_parser("create-tasks"); p.add_argument("--userstory-ref", type=int, required=True); p.add_argument("--task", action="append", help="task em formato 'Título' ou 'Título | descrição'"); p.add_argument("--tasks-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_create_tasks)
     p = sub.add_parser("comment"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--text", default=""); p.add_argument("--text-file"); p.add_argument("--text-stdin", action="store_true"); p.add_argument("--project-id", type=int); add_write_guard_args(p); p.set_defaults(func=cmd_comment)
     p = sub.add_parser("update"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--subject"); p.add_argument("--description"); p.add_argument("--description-file"); p.add_argument("--description-stdin", action="store_true"); p.add_argument("--project-id", type=int); p.add_argument("--tag", action="append"); add_management_args(p); add_write_guard_args(p); p.set_defaults(func=cmd_update)
     p = sub.add_parser("maturity"); add_kind_arg(p); p.add_argument("--ref", type=int, required=True); p.add_argument("--project-id", type=int); p.set_defaults(func=cmd_maturity)
