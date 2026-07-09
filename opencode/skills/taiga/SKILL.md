@@ -64,6 +64,19 @@ Também use quando a Wave já tiver vínculo Taiga ativo.
 
 Não use Taiga em fluxo normal de código sem sinalização explícita.
 
+## Regra obrigatória antes de escrever
+
+Antes de qualquer alteração real no Taiga, mostre exatamente o que será alterado e aguarde autorização ou ajuste do supervisor.
+
+Fluxo obrigatório:
+
+1. rode o comando com `--dry-run`;
+2. mostre o plano ao supervisor;
+3. aguarde aprovação explícita ou ajuste;
+4. só depois rode o mesmo comando com `--yes` e sem `--dry-run`.
+
+Não pule o preview mesmo quando a Wave já estiver vinculada ao Taiga.
+
 ## Comandos operacionais
 
 Read-only:
@@ -74,11 +87,22 @@ tide taiga projects
 tide taiga statuses --kind task
 tide taiga members
 tide taiga list --kind task
+tide taiga find --kind task --contains "termo"
 tide taiga get --kind task --ref 231
 tide taiga maturity --kind task --ref 231
 ```
 
-Escrita no Taiga exige `--yes` e confirmação explícita do supervisor:
+Preview de escrita:
+
+```bash
+tide taiga create --kind task --subject "Título" --description "Descrição" --dry-run
+tide taiga comment --kind task --ref 231 --text "Comentário" --dry-run
+tide taiga update --kind task --ref 231 --status "Em andamento" --dry-run
+tide taiga sync TIDE-0005 --dry-run
+tide taiga create-from-wave TIDE-0005 --kind task --dry-run
+```
+
+Escrita no Taiga exige `--yes` e aprovação explícita do supervisor após o preview:
 
 ```bash
 tide taiga create --kind task --subject "Título" --description "Descrição" --yes
@@ -91,18 +115,20 @@ tide taiga create-from-wave TIDE-0005 --kind task --yes
 Para texto longo, use stdin diretamente no comando Tide:
 
 ```bash
-tide taiga create --kind task --subject "Título" --description-stdin --yes <<'EOF'
+tide taiga create --kind task --subject "Título" --description-stdin --dry-run <<'EOF'
 Descrição longa.
 EOF
 
-tide taiga comment --kind task --ref 231 --text-stdin --yes <<'EOF'
+tide taiga comment --kind task --ref 231 --text-stdin --dry-run <<'EOF'
 Comentário longo.
 EOF
 
-tide taiga update --kind task --ref 231 --description-stdin --yes <<'EOF'
+tide taiga update --kind task --ref 231 --description-stdin --dry-run <<'EOF'
 Descrição atualizada.
 EOF
 ```
+
+Depois da aprovação, repita com `--yes`.
 
 Vínculo local de Wave, sem escrever no Taiga:
 
@@ -118,7 +144,8 @@ Quando o planejamento local estiver maduro e o supervisor pedir para levar ao Ta
 
 - transforme o plano em item organizacional;
 - inclua objetivo, escopo, fora de escopo, critérios de aceite, validação esperada e riscos;
-- use `tide taiga create-from-wave <id> --yes` ou `tide taiga create ... --yes` após confirmação;
+- mostre o preview com `--dry-run`;
+- após aprovação, use `tide taiga create-from-wave <id> --yes` ou `tide taiga create ... --yes`;
 - após criar, registre ref visível e vincule à Wave quando possível.
 
 ### Atividade existente no Taiga
@@ -128,7 +155,7 @@ Quando o supervisor pedir para trabalhar em uma ref, como `#231`:
 - use `tide taiga get --kind task --ref 231` para ler;
 - use `tide taiga maturity --kind task --ref 231` para avaliar maturidade;
 - proponha ajuste se objetivo/escopo/critérios/validação estiverem vagos;
-- peça confirmação antes de editar descrição/status/assignee/sprint;
+- mostre preview antes de editar descrição/status/assignee/sprint;
 - use `tide taiga link <wave> --ref 231` para vincular a Wave.
 
 ### Trabalho local para Taiga
@@ -136,8 +163,8 @@ Quando o supervisor pedir para trabalhar em uma ref, como `#231`:
 Quando o trabalho já foi feito localmente:
 
 - use Wave, validações, code-report e commit se existirem;
-- use `tide taiga create-from-wave <id> --yes` para criar item retrospectivo;
-- use `tide taiga sync <id> --yes` para comentar o estado consolidado;
+- mostre preview com `tide taiga create-from-wave <id> --dry-run` ou `tide taiga sync <id> --dry-run`;
+- só execute com `--yes` após aprovação explícita;
 - não invente evidência ausente.
 
 ## Escrita e confirmação
@@ -151,7 +178,7 @@ Escritas sensíveis exigem confirmação explícita:
 - trocar sprint;
 - atualizar campos organizacionais.
 
-Comentar progresso/fechamento pode ser automático somente quando:
+Comentar progresso/fechamento pode ser automático somente depois de preview aprovado quando:
 
 - a Wave já está vinculada ao Taiga;
 - `taiga.enabled=true` ou equivalente;
@@ -162,13 +189,15 @@ Comentar progresso/fechamento pode ser automático somente quando:
 
 Depois que Taiga estiver ativo para uma Wave, o supervisor não deve precisar pedir checkpoints manuais.
 
-O Tide pode sincronizar em eventos naturais:
+O Tide pode propor sincronização em eventos naturais:
 
 - criação/planejamento;
 - park;
 - finish/validated;
 - approve/committed;
 - reject.
+
+Mesmo nesses eventos, a escrita real no Taiga passa por preview e autorização.
 
 Falha no Taiga não desfaz commit ou estado local. Reporte a falha e recomende retry.
 
