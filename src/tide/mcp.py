@@ -14,10 +14,12 @@ from .core import (
     get_review_packet,
     prepare,
     preparation_report,
-    record_review,
     record_validation,
     revise,
+    start_validation,
+    submit_review,
     validation_log,
+    validation_status,
 )
 from .locks import load_locks, render_draft
 from .project import TideError, project_root
@@ -25,11 +27,14 @@ from .project import TideError, project_root
 
 INSTRUCTIONS = """Tide is the mandatory quality protocol for code changes.
 Load the global Tide skill. Call prepare before editing and check before reporting completion.
-Use revise, not a new prepare, when the task or boundary changes. Do not edit while mutation_allowed is false.
-Use one writer. Create a review packet only when review is required; pass its review_id to tide-reviewer.
-The reviewer reads the packet with review_get. Do not relay full diffs or validation logs through the main agent.
+Declare the validations that must be current for the final diff. Use revise, not a new prepare, when the task, boundary, or validation plan changes.
+Do not edit while mutation_allowed is false. Use one writer.
+Use validate with background=true for commands likely to outlive the MCP request, then poll validation_status.
+Create a review packet only when review is required; pass its review_id to tide-reviewer.
+The reviewer reads the packet with review_get and submits the verdict directly with review_submit using the packet token.
+The writer must not relay or rewrite reviewer findings.
 Treat Module Locks and pending hardgates as mandatory. Never commit or push without explicit supervisor approval.
-Use code-review-graph MCP tools when available, then confirm against current code.
+Use code-review-graph MCP tools before implementation when available, then confirm against current code.
 Do not announce routine steps or maintain visible todos unless requested. Interrupt only for authorization, blockers, or the final checkpoint."""
 
 
@@ -37,25 +42,38 @@ def tools() -> list[dict[str, Any]]:
     return [
         {
             "name": "prepare",
-            "description": "Prepare a code change. Returns boundary, Module Locks, hardgates, validations, and whether mutation is allowed.",
+            "description": "Prepare a code change with its boundary and explicit validation plan.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "task": {"type": "string"},
                     "files": {"type": "array", "items": {"type": "string"}},
+                    "required_validations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Exact commands that must pass for the final diff.",
+                    },
                 },
                 "required": ["task"],
             },
         },
         {
             "name": "revise",
-            "description": "Revise the active task or boundary without resetting the original baseline. Invalidates validation and review evidence.",
+            "description": "Revise the active task, boundary, or validation plan without resetting the original baseline. Invalidates validation and review evidence.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "task": {"type": "string"},
                     "add_files": {"type": "array", "items": {"type": "string"}},
                     "remove_files": {"type": "array", "items": {"type": "string"}},
+                    "add_required_validations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "remove_required_validations": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
                 },
             },
         },
@@ -66,7 +84,7 @@ def tools() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "gates": {"type": "array", "items": {"type": "string"}},
-                    "all": {"type": "boolean", "default": False},
+                    "all": {"type": "boolean", "default": false},
                 },
             },
         },
@@ -86,14 +104,24 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "validate",
-            "description": "Run and record a validation command. Returns compact evidence and a log_id; use validation_log only for failure diagnosis.",
+            "description": "Run and record a validation command. Set background=true for long commands; poll validation_status with the returned validation_id.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "command": {"type": "array", "items": {"type": "string"}},
                     "timeout": {"type": "integer", "minimum": 1},
+                    "background": {"type": "boolean", "default": false},
                 },
                 "required": ["command"],
+            },
+        },
+        {
+            "name": "validation_status",
+            "description": "Poll a background validation. Completed jobs are recorded against the diff fingerprint captured at start.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"validation_id": {"type": "string"}},
+                "required": ["validation_id"],
             },
         },
         {
@@ -112,7 +140,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "review_get",
-            "description": "Read the detailed review packet by review_id. Intended for tide-reviewer, not the main writer.",
+            "description": "Read the detailed review packet, including the one-time submission token. Intended for tide-reviewer, not the writer.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"review_id": {"type": "string"}},
@@ -120,16 +148,17 @@ def tools() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "record_review",
-            "description": "Record the independent review verdict and concise findings.",
+            "name": "review_submit",
+            "description": "Submit the independent reviewer verdict directly. Requires the packet's one-time submission token.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
+                    "review_id": {"type": "string"},
+                    "submission_token": {"type": "string"},
                     "approved": {"type": "boolean"},
                     "findings": {"type": "array", "items": {"type": "string"}},
-                    "review_id": {"type": "string"},
                 },
-                "required": ["approved"],
+                "required": ["review_id", "submission_token", "approved"],
             },
         },
         {
@@ -152,7 +181,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "status",
-            "description": "Show the current Tide preparation and policy.",
+            "description": "Show the current Tide preparation, validation plan, and policy.",
             "inputSchema": {"type": "object", "properties": {}},
         },
     ]
@@ -161,34 +190,52 @@ def tools() -> list[dict[str, Any]]:
 def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     root = project_root()
     if name == "prepare":
-        return prepare(root, str(arguments["task"]), list(arguments.get("files") or []))
+        return prepare(
+            root,
+            str(arguments["task"]),
+            list(arguments.get("files") or []),
+            list(arguments.get("required_validations") or []),
+        )
     if name == "revise":
         return revise(
             root,
             task=str(arguments["task"]) if arguments.get("task") is not None else None,
             add_files=list(arguments.get("add_files") or []),
             remove_files=list(arguments.get("remove_files") or []),
+            add_required_validations=list(arguments.get("add_required_validations") or []),
+            remove_required_validations=list(arguments.get("remove_required_validations") or []),
         )
     if name == "authorize":
-        return authorize(root, list(arguments.get("gates") or []), all_gates=bool(arguments.get("all", False)))
+        return authorize(
+            root,
+            list(arguments.get("gates") or []),
+            all_gates=bool(arguments.get("all", false)),
+        )
     if name == "context":
         return query_context(root, str(arguments["query"]))
     if name == "check":
         return check(root)
     if name == "validate":
-        return record_validation(root, list(arguments["command"]), int(arguments.get("timeout", 300)))
+        command = list(arguments["command"])
+        timeout = int(arguments.get("timeout", 300))
+        if bool(arguments.get("background", false)):
+            return start_validation(root, command, timeout)
+        return record_validation(root, command, timeout)
+    if name == "validation_status":
+        return validation_status(root, str(arguments["validation_id"]))
     if name == "validation_log":
         return validation_log(root, str(arguments["log_id"]))
     if name == "review_packet":
         return create_review_packet(root)
     if name == "review_get":
         return get_review_packet(root, str(arguments["review_id"]))
-    if name == "record_review":
-        return record_review(
+    if name == "review_submit":
+        return submit_review(
             root,
+            review_id=str(arguments["review_id"]),
+            submission_token=str(arguments["submission_token"]),
             approved=bool(arguments["approved"]),
             findings=list(arguments.get("findings") or []),
-            review_id=str(arguments["review_id"]) if arguments.get("review_id") else None,
         )
     if name == "lock_list":
         return [
@@ -234,7 +281,7 @@ def handle(request: dict[str, Any]) -> None:
             result={
                 "protocolVersion": "2025-03-26",
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "tide", "version": "0.6.0a3"},
+                "serverInfo": {"name": "tide", "version": "0.6.0a4"},
                 "instructions": INSTRUCTIONS,
             },
         )
@@ -243,13 +290,21 @@ def handle(request: dict[str, Any]) -> None:
     elif method == "tools/call":
         params = request.get("params") or {}
         try:
-            value = call_tool(str(params.get("name")), dict(params.get("arguments") or {}))
+            value = call_tool(
+                str(params.get("name")),
+                dict(params.get("arguments") or {}),
+            )
             respond(
                 request_id,
                 result={
-                    "content": [{"type": "text", "text": json.dumps(value, indent=2, ensure_ascii=False)}],
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(value, indent=2, ensure_ascii=False),
+                        }
+                    ],
                     "structuredContent": value,
-                    "isError": False,
+                    "isError": false,
                 },
             )
         except Exception as exc:
@@ -257,19 +312,26 @@ def handle(request: dict[str, Any]) -> None:
                 request_id,
                 result={
                     "content": [{"type": "text", "text": str(exc)}],
-                    "isError": True,
+                    "isError": true,
                 },
             )
     elif method == "resources/list":
         try:
-            respond(request_id, result={"resources": list_review_resources(project_root())})
+            respond(
+                request_id,
+                result={"resources": list_review_resources(project_root())},
+            )
         except Exception as exc:
             respond(request_id, error=str(exc))
     elif method == "resources/read":
         try:
             uri = str((request.get("params") or {}).get("uri", ""))
             parsed = urlparse(uri)
-            if parsed.scheme != "tide" or parsed.netloc != "reviews" or not parsed.path.strip("/"):
+            if (
+                parsed.scheme != "tide"
+                or parsed.netloc != "reviews"
+                or not parsed.path.strip("/")
+            ):
                 raise TideError(f"unknown resource: {uri}")
             review_id = parsed.path.strip("/")
             packet = get_review_packet(project_root(), review_id)
