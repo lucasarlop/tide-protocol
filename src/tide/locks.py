@@ -81,9 +81,39 @@ def load_locks(root: Path) -> list[ModuleLock]:
 def matching_locks(root: Path, files: list[str]) -> list[ModuleLock]:
     matches: list[ModuleLock] = []
     for lock in load_locks(root):
-        if any(lock.matches(path) for path in files):
+        if any(_lock_applies(lock, path) for path in files):
             matches.append(lock)
     return matches
+
+
+def _lock_applies(lock: ModuleLock, path_or_pattern: str) -> bool:
+    if not any(char in path_or_pattern for char in "*?["):
+        return lock.matches(path_or_pattern)
+    candidate_prefix = _static_prefix(path_or_pattern)
+    return any(
+        _prefixes_overlap(candidate_prefix, _static_prefix(pattern))
+        for pattern in lock.paths
+    )
+
+
+def _static_prefix(pattern: str) -> str:
+    parts: list[str] = []
+    for part in Path(pattern).as_posix().split("/"):
+        if any(char in part for char in "*?["):
+            break
+        if part:
+            parts.append(part)
+    return "/".join(parts)
+
+
+def _prefixes_overlap(left: str, right: str) -> bool:
+    if not left or not right:
+        return True
+    return (
+        left == right
+        or left.startswith(right.rstrip("/") + "/")
+        or right.startswith(left.rstrip("/") + "/")
+    )
 
 
 def render_draft(*, name: str, scope: str, criticality: str = "production") -> str:

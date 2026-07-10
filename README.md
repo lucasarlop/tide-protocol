@@ -25,7 +25,6 @@ Only policy that must influence future work:
 - quality and hardgate rules;
 - engine adapters;
 - short Module Locks for mature modules;
-- minimal project configuration.
 
 ## What is temporary
 
@@ -33,10 +32,10 @@ Execution evidence is stored under `<git-dir>/tide/current.json`:
 
 - current task and boundary;
 - authorized hardgates;
-- validations;
-- reviewer verdict.
+- validations tied to the exact diff fingerprint;
+- reviewer verdict tied to the exact diff fingerprint.
 
-It is not versioned.
+It is not versioned. If code changes after validation or review, that evidence becomes stale and `tide check` blocks completion. Pre-existing changes outside the task boundary are tolerated only while their diff remains unchanged.
 
 ## Components
 
@@ -90,7 +89,6 @@ This creates only:
 
 ```text
 .tide/
-  project.toml
   locks/
 ```
 

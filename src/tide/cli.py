@@ -36,10 +36,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     root = project_root()
     directory = root / ".tide" / "locks"
     directory.mkdir(parents=True, exist_ok=True)
-    config = root / ".tide" / "project.toml"
-    if not config.exists():
-        config.write_text('version = 1\n\n[quality]\ncommit_requires_approval = true\n', encoding="utf-8")
-    emit({"project": str(root), "config": str(config.relative_to(root)), "locks": str(directory.relative_to(root))})
+    emit({"project": str(root), "locks": str(directory.relative_to(root))})
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:

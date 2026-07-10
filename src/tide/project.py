@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -73,7 +74,10 @@ def save_runtime(root: Path, value: dict[str, Any]) -> None:
 
 
 def changed_files(root: Path) -> list[str]:
-    result = run_git(["status", "--porcelain=v1", "-z"], cwd=root)
+    result = run_git(
+        ["status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        cwd=root,
+    )
     items = result.stdout.split("\0")
     paths: set[str] = set()
     index = 0
@@ -88,6 +92,8 @@ def changed_files(root: Path) -> list[str]:
             paths.add(Path(payload).as_posix())
         # In porcelain -z, rename/copy records are followed by the original path.
         if "R" in status or "C" in status:
+            if index + 1 < len(items) and items[index + 1]:
+                paths.add(Path(items[index + 1]).as_posix())
             index += 2
         else:
             index += 1
@@ -100,16 +106,48 @@ def staged_files(root: Path) -> list[str]:
 
 
 def current_diff(root: Path, paths: list[str] | None = None) -> dict[str, Any]:
-    selected = paths or changed_files(root)
+    selected = changed_files(root) if paths is None else paths
+    full_text = _full_diff_text(root, selected)
+    text = full_text
+    truncated = len(text) > DIFF_LIMIT
+    if truncated:
+        text = text[:DIFF_LIMIT] + "\n...[diff truncated by Tide]"
+    return {
+        "text": text,
+        "truncated": truncated,
+        "bytes": len(full_text.encode("utf-8")),
+    }
+
+
+def diff_fingerprint(root: Path, paths: list[str] | None = None) -> str:
+    selected = changed_files(root) if paths is None else sorted(paths)
+    full_diff = _full_diff_text(root, selected)
+    payload = json.dumps(
+        {"paths": selected, "diff": full_diff},
+        sort_keys=True,
+        ensure_ascii=False,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def file_fingerprints(root: Path, paths: list[str]) -> dict[str, str]:
+    return {path: diff_fingerprint(root, [path]) for path in sorted(paths)}
+
+
+def _full_diff_text(root: Path, selected: list[str]) -> str:
     tracked: list[str] = []
     untracked: list[str] = []
     for path in selected:
-        result = run_git(["ls-files", "--error-unmatch", "--", path], cwd=root, check=False)
-        (tracked if result.returncode == 0 else untracked).append(path)
+        indexed = run_git(["ls-files", "--error-unmatch", "--", path], cwd=root, check=False)
+        in_head = run_git(["cat-file", "-e", f"HEAD:{path}"], cwd=root, check=False)
+        (tracked if indexed.returncode == 0 or in_head.returncode == 0 else untracked).append(path)
 
     parts: list[str] = []
     if tracked:
-        result = run_git(["diff", "--no-ext-diff", "--binary", "HEAD", "--", *tracked], cwd=root)
+        result = run_git(
+            ["diff", "--no-ext-diff", "--binary", "HEAD", "--", *tracked],
+            cwd=root,
+        )
         parts.append(result.stdout)
     for path in untracked:
         result = subprocess.run(
@@ -121,10 +159,4 @@ def current_diff(root: Path, paths: list[str] | None = None) -> dict[str, Any]:
         if result.returncode not in {0, 1}:
             raise TideError(result.stderr.strip() or f"cannot build diff for {path}")
         parts.append(result.stdout)
-
-    full_text = "".join(parts)
-    text = full_text
-    truncated = len(text) > DIFF_LIMIT
-    if truncated:
-        text = text[:DIFF_LIMIT] + "\n...[diff truncated by Tide]"
-    return {"text": text, "truncated": truncated, "bytes": len(full_text.encode("utf-8"))}
+    return "".join(parts)
