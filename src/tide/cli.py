@@ -4,11 +4,10 @@ import argparse
 import json
 import shutil
 import sys
-from pathlib import Path
 
 from . import __version__
 from .context import graph_status, query_context
-from .core import check, prepare, preparation_report, record_review, record_validation
+from .core import authorize, check, prepare, preparation_report, record_review, record_validation, review_packet
 from .locks import load_locks, matching_locks, parse_lock, render_draft
 from .mcp import serve
 from .project import TideError, project_root, runtime_dir, save_runtime
@@ -72,6 +71,14 @@ def cmd_validate(args: argparse.Namespace) -> None:
     emit(result, as_json=True)
     if not result["passed"]:
         raise SystemExit(result["exit_code"] or 1)
+
+
+def cmd_authorize(args: argparse.Namespace) -> None:
+    emit(authorize(project_root(), args.gate or [], all_gates=args.all), as_json=True)
+
+
+def cmd_review_packet(args: argparse.Namespace) -> None:
+    emit(review_packet(project_root()), as_json=True)
 
 
 def cmd_review(args: argparse.Namespace) -> None:
@@ -140,6 +147,11 @@ def build_parser() -> argparse.ArgumentParser:
     status = sub.add_parser("status")
     status.set_defaults(func=cmd_status)
 
+    authorize_parser = sub.add_parser("authorize")
+    authorize_parser.add_argument("--gate", action="append")
+    authorize_parser.add_argument("--all", action="store_true")
+    authorize_parser.set_defaults(func=cmd_authorize)
+
     context = sub.add_parser("context")
     context.add_argument("query")
     context.set_defaults(func=cmd_context)
@@ -151,6 +163,9 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--timeout", type=int, default=300)
     validate.add_argument("command", nargs=argparse.REMAINDER)
     validate.set_defaults(func=cmd_validate)
+
+    review_packet_parser = sub.add_parser("review-packet")
+    review_packet_parser.set_defaults(func=cmd_review_packet)
 
     review = sub.add_parser("review")
     verdict = review.add_mutually_exclusive_group(required=True)

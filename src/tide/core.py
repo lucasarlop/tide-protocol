@@ -7,7 +7,7 @@ from typing import Any
 from .commands import run_validation
 from .locks import matching_locks
 from .policy import decide
-from .project import changed_files, load_runtime, save_runtime
+from .project import changed_files, current_diff, load_runtime, save_runtime
 
 
 def now_iso() -> str:
@@ -26,6 +26,7 @@ def prepare(root: Path, task: str, files: list[str] | None = None) -> dict[str, 
         "updated_at": now_iso(),
         "boundary": boundary,
         "hardgates": list(policy.hardgates),
+        "authorized_hardgates": [],
         "review_required": policy.review_required,
         "review_reasons": list(policy.reasons),
         "locks": [lock.name for lock in locks],
@@ -36,16 +37,40 @@ def prepare(root: Path, task: str, files: list[str] | None = None) -> dict[str, 
     return preparation_report(root, runtime)
 
 
+def authorize(root: Path, gates: list[str] | None = None, *, all_gates: bool = False) -> dict[str, Any]:
+    runtime = load_runtime(root)
+    if not runtime:
+        raise RuntimeError("run tide prepare before authorization")
+    known = set(runtime.get("hardgates", []))
+    requested = known if all_gates else set(gates or [])
+    unknown = sorted(requested - known)
+    if unknown:
+        raise RuntimeError(f"unknown hardgates: {', '.join(unknown)}")
+    authorized = set(runtime.get("authorized_hardgates", [])) | requested
+    runtime["authorized_hardgates"] = sorted(authorized)
+    runtime["updated_at"] = now_iso()
+    save_runtime(root, runtime)
+    return preparation_report(root, runtime)
+
+
 def preparation_report(root: Path, runtime: dict[str, Any] | None = None) -> dict[str, Any]:
     runtime = runtime or load_runtime(root)
     boundary = runtime.get("boundary", [])
     locks = matching_locks(root, boundary)
     required_validations = sorted({command for lock in locks for command in lock.validations})
+    hardgates = sorted(set(runtime.get("hardgates", [])))
+    authorized = sorted(set(runtime.get("authorized_hardgates", [])))
+    pending = sorted(set(hardgates) - set(authorized))
+    mutation_allowed = bool(boundary) and not pending
     return {
         "task": runtime.get("task"),
         "status": runtime.get("status"),
         "boundary": boundary,
-        "hardgates": runtime.get("hardgates", []),
+        "boundary_required": not bool(boundary),
+        "hardgates": hardgates,
+        "authorized_hardgates": authorized,
+        "pending_hardgates": pending,
+        "mutation_allowed": mutation_allowed,
         "review_required": runtime.get("review_required", False),
         "review_reasons": runtime.get("review_reasons", []),
         "locks": [
@@ -93,6 +118,34 @@ def record_review(root: Path, *, approved: bool, findings: list[str]) -> dict[st
     return runtime["review"]
 
 
+def review_packet(root: Path) -> dict[str, Any]:
+    runtime = load_runtime(root)
+    if not runtime:
+        raise RuntimeError("run tide prepare before review")
+    actual = changed_files(root)
+    locks = matching_locks(root, actual or runtime.get("boundary", []))
+    return {
+        "task": runtime.get("task"),
+        "boundary": runtime.get("boundary", []),
+        "files": actual,
+        "diff": current_diff(root, actual),
+        "locks": [
+            {
+                "name": lock.name,
+                "criticality": lock.criticality,
+                "invariants": list(lock.invariants),
+                "validations": list(lock.validations),
+                "sensitive_changes": list(lock.sensitive_changes),
+                "contract": lock.body,
+            }
+            for lock in locks
+        ],
+        "validations": runtime.get("validations", []),
+        "review_focus": runtime.get("review_reasons", []),
+        "instruction": "Read-only review. Return concise blocking and non-blocking findings.",
+    }
+
+
 def check(root: Path) -> dict[str, Any]:
     runtime = load_runtime(root)
     actual = changed_files(root)
@@ -106,12 +159,19 @@ def check(root: Path) -> dict[str, Any]:
     failures = [item for item in validations if not item.get("passed")]
     review_required = bool(runtime and runtime.get("review_required")) or any(lock.review_required for lock in locks)
     review = runtime.get("review") if runtime else None
+    hardgates = set(runtime.get("hardgates", [])) if runtime else set()
+    authorized = set(runtime.get("authorized_hardgates", [])) if runtime else set()
+    pending_hardgates = sorted(hardgates - authorized)
 
     blockers: list[str] = []
     if not runtime:
         blockers.append("no active Tide preparation")
+    if actual and not boundary:
+        blockers.append("no boundary declared")
     if outside:
         blockers.append("files changed outside the declared boundary")
+    if pending_hardgates:
+        blockers.append("hardgates not authorized")
     if actual and not validations:
         blockers.append("no validation recorded")
     if failures:
@@ -142,7 +202,9 @@ def check(root: Path) -> dict[str, Any]:
         "failed_validation_count": len(failures),
         "review_required": review_required,
         "review": review,
-        "hardgates": runtime.get("hardgates", []) if runtime else [],
+        "hardgates": sorted(hardgates),
+        "authorized_hardgates": sorted(authorized),
+        "pending_hardgates": pending_hardgates,
         "blockers": blockers,
     }
 

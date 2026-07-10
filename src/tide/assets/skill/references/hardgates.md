@@ -10,6 +10,9 @@ Stop before mutation when work touches:
 - infrastructure or CI/CD;
 - public API contracts;
 - new production dependencies;
-- Module Lock invariants.
+- Module Lock invariants or sensitive contracts.
 
 Reading and planning are not approval to mutate.
+
+Tide `prepare` returns pending hardgates and `mutation_allowed`.
+Only the supervisor may authorize them through Tide `authorize`.

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,43 +11,38 @@ MAX_RESULTS = 30
 
 def graph_status(root: Path) -> dict[str, Any]:
     executable = shutil.which("code-review-graph")
-    index_exists = (root / ".code-review-graph").exists()
-    query_supported = False
-    if executable:
-        help_result = subprocess.run([executable, "--help"], text=True, capture_output=True, timeout=10)
-        query_supported = "query" in (help_result.stdout + help_result.stderr).lower()
     return {
         "available": bool(executable),
-        "index_exists": index_exists,
-        "query_supported": query_supported,
+        "index_exists": (root / ".code-review-graph").exists(),
         "executable": executable,
+        "mcp_command": [executable, "serve"] if executable else None,
     }
 
 
 def query_context(root: Path, query: str) -> dict[str, Any]:
     status = graph_status(root)
-    if status["available"] and status["query_supported"]:
-        result = subprocess.run(
-            [status["executable"], "query", "--repo", str(root), "--json", query],
-            cwd=root,
-            text=True,
-            capture_output=True,
-            timeout=30,
-        )
-        if result.returncode == 0:
-            try:
-                payload = json.loads(result.stdout)
-            except json.JSONDecodeError:
-                payload = result.stdout.strip()
-            return {"source": "code-review-graph", "query": query, "result": payload, "status": status}
-
-    return {
-        "source": "direct-search",
+    response: dict[str, Any] = {
         "query": query,
-        "result": _direct_search(root, query),
-        "status": status,
-        "warning": "code-review-graph query unavailable; verify all findings against current code",
+        "truth": "current code + git status + current diff + real validations",
+        "graph": status,
+        "direct_search": _direct_search(root, query),
     }
+    if status["available"]:
+        response["preferred_graph_tools"] = [
+            "get_minimal_context_tool",
+            "semantic_search_nodes_tool",
+            "query_graph_tool",
+            "get_impact_radius_tool",
+        ]
+        response["instruction"] = (
+            "Use the code-review-graph MCP for structural context, then confirm findings "
+            "against current code. Tide does not duplicate the graph implementation."
+        )
+    else:
+        response["instruction"] = (
+            "code-review-graph is unavailable. Use the direct-search hits and read current code."
+        )
+    return response
 
 
 def _direct_search(root: Path, query: str) -> list[dict[str, Any]]:
@@ -56,7 +50,7 @@ def _direct_search(root: Path, query: str) -> list[dict[str, Any]]:
     if not command:
         return []
     result = subprocess.run(
-        [command, "--line-number", "--smart-case", "--glob", "!/.git", "--", query, "."],
+        [command, "--line-number", "--smart-case", "--glob", "!.git/**", "--", query, "."],
         cwd=root,
         text=True,
         capture_output=True,

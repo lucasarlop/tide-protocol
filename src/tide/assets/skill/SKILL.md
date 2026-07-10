@@ -5,18 +5,32 @@ description: Mandatory quality protocol for code changes. Use before editing cod
 
 # Tide
 
-Use Tide to control implementation quality.
+Control implementation quality. Do not track development history.
 
-## Always
+## Before editing
 
-1. Treat current code, Git state, diff, and real validations as truth.
-2. Call `tide_prepare` before editing.
-3. Use the smallest safe boundary.
-4. Use one writer.
-5. Respect Module Locks and hardgates.
-6. Validate changed behavior.
-7. Call `tide_check` before saying the work is ready.
-8. Never commit or push without explicit supervisor approval.
+1. Treat current code, Git state, current diff, and real validations as truth.
+2. Call Tide `prepare` with the smallest likely file boundary.
+3. Use code-review-graph MCP tools when available. Confirm results against current code.
+4. Do not edit while `mutation_allowed` is false.
+5. Pending hardgates require explicit supervisor authorization through Tide `authorize`.
+
+## While implementing
+
+- One writer.
+- Smallest safe change.
+- Do not expand scope.
+- Respect Module Locks.
+- Call Tide `prepare` again if the boundary must change. This resets prior evidence.
+- Use `tide-reviewer` only when Tide says review is required.
+
+## Before completion
+
+1. Run exact validations through Tide `validate`.
+2. When review is required, call Tide `review_packet`, delegate to `tide-reviewer`, then record the verdict with Tide `record_review`.
+3. Call Tide `check`.
+4. Do not report completion unless `ready` is true.
+5. Never commit or push without explicit supervisor approval.
 
 ## Communication
 
@@ -29,19 +43,7 @@ Caveman style:
 - do not narrate intentions;
 - explain only decisions, risks, blockers, and evidence.
 
-## Context
-
-Use `tide_context` first when it reduces broad exploration.
-`code-review-graph` accelerates discovery but never replaces reading current code.
-
-## Review
-
-Use the configured `tide-reviewer` only when Tide requires review.
-The reviewer is read-only. Pass only the task, diff, applicable locks, and validations.
-
-## Completion
-
-Final checkpoint:
+## Completion checkpoint
 
 - change;
 - files;

@@ -39,6 +39,18 @@ def decide(task: str, files: list[str], locks: list[ModuleLock]) -> PolicyDecisi
     if any(lock.criticality in {"production", "critical"} for lock in locks):
         review_required = True
         reasons.append("production/critical module")
+
+    sensitive_terms = {
+        term.lower()
+        for lock in locks
+        for term in lock.sensitive_changes
+        if term.strip()
+    }
+    if any(term in lowered for term in sensitive_terms):
+        hardgates.append("module_contract")
+        review_required = True
+        reasons.append("Module Lock contract may change")
+
     if hardgates:
         review_required = True
         reasons.append("sensitive change")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from tide.core import check, prepare, record_review, record_validation
+from tide.core import authorize, check, prepare, record_review, record_validation, review_packet
 
 
 def git(root: Path, *args: str) -> None:
@@ -24,7 +24,8 @@ def make_repo(tmp_path: Path) -> Path:
 
 def test_boundary_and_validation_gate(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
-    prepare(root, "change value", ["app.py"])
+    report = prepare(root, "change value", ["app.py"])
+    assert report["mutation_allowed"]
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     report = check(root)
     assert not report["ready"]
@@ -65,7 +66,7 @@ sensitive_changes = []
     )
     git(root, "add", ".tide/locks/app.md")
     git(root, "commit", "-m", "add lock")
-    prepare(root, "change production app", ["app.py"])
+    prepare(root, "change app value", ["app.py"])
     (root / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
     record_validation(root, ["python", "-c", "assert True"])
     report = check(root)
@@ -73,3 +74,38 @@ sensitive_changes = []
     assert "independent review required" in report["blockers"]
     record_review(root, approved=True, findings=[])
     assert check(root)["ready"]
+
+
+def test_hardgate_requires_explicit_authorization(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    report = prepare(root, "deploy database migration to production", ["app.py"])
+    assert not report["mutation_allowed"]
+    assert set(report["pending_hardgates"]) >= {"database", "production"}
+
+    report = authorize(root, all_gates=True)
+    assert report["mutation_allowed"]
+    assert not report["pending_hardgates"]
+
+    (root / "app.py").write_text("VALUE = 4\n", encoding="utf-8")
+    record_validation(root, ["python", "-c", "assert True"])
+    record_review(root, approved=True, findings=[])
+    assert check(root)["ready"]
+
+
+def test_review_packet_includes_untracked_diff(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "add helper", ["helper.py"])
+    (root / "helper.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+    packet = review_packet(root)
+    assert packet["files"] == ["helper.py"]
+    assert "helper.py" in packet["diff"]["text"]
+    assert "def helper" in packet["diff"]["text"]
+
+
+def test_changed_files_without_boundary_blocks(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    report = prepare(root, "change something")
+    assert not report["mutation_allowed"]
+    (root / "app.py").write_text("VALUE = 5\n", encoding="utf-8")
+    record_validation(root, ["python", "-c", "assert True"])
+    assert "no boundary declared" in check(root)["blockers"]
