@@ -90,7 +90,6 @@ def changed_files(root: Path) -> list[str]:
         payload = item[3:] if len(item) >= 4 else ""
         if payload:
             paths.add(Path(payload).as_posix())
-        # In porcelain -z, rename/copy records are followed by the original path.
         if "R" in status or "C" in status:
             if index + 1 < len(items) and items[index + 1]:
                 paths.add(Path(items[index + 1]).as_posix())
@@ -132,6 +131,10 @@ def diff_fingerprint(root: Path, paths: list[str] | None = None) -> str:
 
 def file_fingerprints(root: Path, paths: list[str]) -> dict[str, str]:
     return {path: diff_fingerprint(root, [path]) for path in sorted(paths)}
+
+
+def is_tracked_in_head(root: Path, path: str) -> bool:
+    return run_git(["cat-file", "-e", f"HEAD:{path}"], cwd=root, check=False).returncode == 0
 
 
 def _full_diff_text(root: Path, selected: list[str]) -> str:
