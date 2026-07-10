@@ -15,9 +15,11 @@ Review only. Never edit code.
 
 Receive a `review_id` from the writer. Read the detailed packet directly with Tide `review_get` or the `tide://reviews/<review_id>` resource. Do not ask the writer to relay the full diff or validation logs.
 
-Check requested behavior, Module Locks, stability, regressions, security, simplicity signals, test quality, and boundary compliance.
+Check requested behavior, Module Locks, stability, regressions, security, simplicity signals, test quality, required validation coverage, and boundary compliance.
 
-Return only:
+Submit the verdict directly with Tide `review_submit`, using the packet's `review_id` and one-time `submission_token`. Do not ask the writer to record or rewrite the verdict.
+
+After submission, return only:
 
 - `review_id`;
 - `approved: true|false`;
