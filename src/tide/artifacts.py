@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 import shlex
 import uuid
 from datetime import datetime
@@ -18,7 +19,8 @@ def _timestamp() -> str:
 
 
 def _safe_id(value: str, *, label: str) -> str:
-    if not value or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_." for char in value):
+    allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_."
+    if not value or any(char not in allowed for char in value):
         raise TideError(f"invalid {label}: {value}")
     return value
 
@@ -72,14 +74,23 @@ def read_validation_log(root: Path, log_id: str) -> dict[str, Any]:
     }
 
 
+def _review_path(root: Path, review_id: str) -> Path:
+    safe = _safe_id(review_id, label="review id")
+    return runtime_dir(root) / "reviews" / f"{safe}.json"
+
+
 def save_review_packet(root: Path, packet: dict[str, Any]) -> dict[str, Any]:
     fingerprint = str(packet.get("diff_fingerprint") or "no-diff")
     review_id = f"review-{fingerprint[:12]}-{uuid.uuid4().hex[:8]}"
     directory = runtime_dir(root) / "reviews"
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / f"{review_id}.json"
-    payload = {**packet, "review_id": review_id}
-    write_json(path, payload)
+    payload = {
+        **packet,
+        "review_id": review_id,
+        "submission_token": secrets.token_urlsafe(32),
+        "submission": None,
+    }
+    write_json(_review_path(root, review_id), payload)
     return {
         "review_id": review_id,
         "resource": f"tide://reviews/{review_id}",
@@ -93,12 +104,32 @@ def save_review_packet(root: Path, packet: dict[str, Any]) -> dict[str, Any]:
 
 
 def read_review_packet(root: Path, review_id: str) -> dict[str, Any]:
-    safe = _safe_id(review_id, label="review id")
-    path = runtime_dir(root) / "reviews" / f"{safe}.json"
-    value = read_json(path, None)
+    value = read_json(_review_path(root, review_id), None)
     if not isinstance(value, dict):
         raise TideError(f"review packet not found: {review_id}")
     return value
+
+
+def consume_review_submission(
+    root: Path,
+    review_id: str,
+    submission_token: str,
+    submission: dict[str, Any],
+) -> dict[str, Any]:
+    packet = read_review_packet(root, review_id)
+    if packet.get("submission"):
+        raise TideError("review packet already has a submitted verdict")
+    expected = str(packet.get("submission_token") or "")
+    if not expected or not secrets.compare_digest(expected, submission_token):
+        raise TideError("invalid review submission token")
+    receipt = {
+        **submission,
+        "receipt_id": f"review-receipt-{uuid.uuid4().hex[:16]}",
+    }
+    packet["submission"] = receipt
+    packet.pop("submission_token", None)
+    write_json(_review_path(root, review_id), packet)
+    return receipt
 
 
 def list_review_resources(root: Path) -> list[dict[str, str]]:
