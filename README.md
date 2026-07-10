@@ -17,30 +17,28 @@ live code
 → supervisor
 ```
 
-## What is durable
+## Durable and temporary state
 
-Only policy that must influence future work:
+Durable:
 
 - the global Tide Skill;
 - quality and hardgate rules;
 - engine adapters;
-- short Module Locks for mature modules;
+- short Module Locks for mature modules.
 
-## What is temporary
-
-Execution evidence is stored under `<git-dir>/tide/current.json`:
+Temporary evidence is stored under `<git-dir>/tide/current.json`:
 
 - current task and boundary;
 - authorized hardgates;
 - validations tied to the exact diff fingerprint;
 - reviewer verdict tied to the exact diff fingerprint.
 
-It is not versioned. If code changes after validation or review, that evidence becomes stale and `tide check` blocks completion. Pre-existing changes outside the task boundary are tolerated only while their diff remains unchanged.
+Evidence is not versioned. If code changes after validation or review, it becomes stale and `tide check` blocks completion. Pre-existing changes outside the task boundary are tolerated only while their diff remains unchanged.
 
 ## Components
 
 - **Tide Core** — boundaries, hardgates, Module Locks, validation, review requirement, final gate.
-- **CLI** — deterministic human/CI interface.
+- **CLI** — deterministic human and CI interface.
 - **MCP** — the same Core exposed to Codex, OpenCode, and future engines.
 - **Agent Skill** — canonical behavior loaded progressively.
 - **Adapters** — short bootstrap and one read-only reviewer per engine.
@@ -49,12 +47,18 @@ It is not versioned. If code changes after validation or review, that evidence b
 ## Install this experiment
 
 ```bash
-pipx install 'git+https://github.com/lucasarlop/tide-protocol.git@experiment/tide-core'
+uv tool install --python 3.12 \
+  'git+https://github.com/lucasarlop/tide-protocol.git@experiment/tide-core'
+
 tide setup --codex --opencode
 tide doctor
 ```
 
-`uv tool install` works too.
+Inspect setup without changing files:
+
+```bash
+tide setup --codex --opencode --dry-run
+```
 
 `setup` installs globally:
 
@@ -72,11 +76,69 @@ Existing OpenCode JSONC settings are preserved as values. Before normalization, 
 
 When `code-review-graph` is installed, Tide registers its official local MCP command alongside the Tide MCP. Otherwise, Tide keeps a direct-search fallback.
 
-Inspect without changing files:
+## Human and JSON output
+
+CLI output is human-readable by default:
 
 ```bash
-tide setup --codex --opencode --dry-run
+tide status
+tide check
+tide doctor
 ```
+
+Use `--json` for scripts or debugging MCP payloads. It may appear before or after the command:
+
+```bash
+tide --json status
+tide status --json
+```
+
+MCP transport remains JSON-RPC and is not affected by CLI formatting.
+
+## Update
+
+`tide update` asks `uv` to reinstall the currently registered `tide-protocol` tool, then reapplies only the Codex/OpenCode adapters already installed:
+
+```bash
+tide update
+```
+
+Inspect first:
+
+```bash
+tide update --dry-run
+```
+
+The update uses the source and constraints recorded by `uv tool install`.
+
+## Uninstall
+
+Preview everything that will be removed:
+
+```bash
+tide uninstall --dry-run
+```
+
+Remove all detected Tide adapters, the shared Skill, and the `uv` tool:
+
+```bash
+tide uninstall --yes
+```
+
+Remove only one adapter. If another adapter remains, the shared Skill and package are kept automatically:
+
+```bash
+tide uninstall --codex --yes
+tide uninstall --opencode --yes
+```
+
+Remove integrations but keep the command installed:
+
+```bash
+tide uninstall --keep-tool --yes
+```
+
+Uninstall removes only Tide-managed blocks, reviewer files, the Tide MCP registration, and the shared Tide Skill. It preserves unrelated Codex/OpenCode settings and keeps `code-review-graph` as an independent integration. Project `.tide/locks/` are versioned contracts and are not deleted.
 
 ## Initialize a project
 
@@ -116,11 +178,10 @@ tide prepare 'Fix EPUB footnote backlinks' \
   --file 'src/epub/**' \
   --file 'tests/epub/**'
 
-# Only when prepare reports pending hardgates and the supervisor approves:
+# Only after explicit supervisor approval:
 tide authorize --all
 
 tide context 'footnote backlink'
-
 tide validate -- pytest tests/epub -x
 
 # Only when review_required=true:
@@ -135,15 +196,6 @@ tide check
 ## Hardgates
 
 Hardgates stop mutation for sensitive work such as production, migrations, auth, secrets, real data, infrastructure, public API contracts, dependencies, or protected Module Lock contracts.
-
-`prepare` returns:
-
-```json
-{
-  "pending_hardgates": ["database", "production"],
-  "mutation_allowed": false
-}
-```
 
 The MCP `authorize` and `validate` tools are configured to require host approval.
 
