@@ -73,6 +73,9 @@ LABELS = {
     "uninstalled": "Desinstalado",
     "adapters": "Adapters",
     "tool_removed": "Pacote removido",
+    "shared_removed": "Skill compartilhada removida",
+    "setup_command": "Comando de reconfiguração",
+    "uv_output": "Saída do uv",
 }
 
 VALUE_TRANSLATIONS = {
