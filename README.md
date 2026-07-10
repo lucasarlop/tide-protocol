@@ -2,9 +2,7 @@
 
 Tide is a minimal quality protocol for AI coding agents.
 
-It does not document development history. It controls whether an implementation may be accepted by the supervisor.
-
-## Thesis
+It controls implementation quality before work is accepted by the supervisor.
 
 ```text
 live code
@@ -17,34 +15,7 @@ live code
 → supervisor
 ```
 
-## Durable and temporary state
-
-Durable:
-
-- the global Tide Skill;
-- quality and hardgate rules;
-- engine adapters;
-- short Module Locks for mature modules.
-
-Temporary evidence is stored under `<git-dir>/tide/current.json`:
-
-- current task and boundary;
-- authorized hardgates;
-- validations tied to the exact diff fingerprint;
-- reviewer verdict tied to the exact diff fingerprint.
-
-Evidence is not versioned. If code changes after validation or review, it becomes stale and `tide check` blocks completion. Pre-existing changes outside the task boundary are tolerated only while their diff remains unchanged.
-
-## Components
-
-- **Tide Core** — boundaries, hardgates, Module Locks, validation, review requirement, final gate.
-- **CLI** — deterministic human and CI interface.
-- **MCP** — the same Core exposed to Codex, OpenCode, and future engines.
-- **Agent Skill** — canonical behavior loaded progressively.
-- **Adapters** — short bootstrap and one read-only reviewer per engine.
-- **code-review-graph** — optional, separate MCP for structural context. Tide does not duplicate it.
-
-## Install this experiment
+## Install
 
 ```bash
 uv tool install --python 3.12 \
@@ -54,124 +25,31 @@ tide setup --codex --opencode
 tide doctor
 ```
 
-Inspect setup without changing files:
-
-```bash
-tide setup --codex --opencode --dry-run
-```
-
-`setup` installs globally:
-
-```text
-~/.agents/skills/tide/
-~/.codex/AGENTS.md
-~/.codex/agents/tide-reviewer.toml
-~/.codex/config.toml
-~/.config/opencode/AGENTS.md
-~/.config/opencode/agents/tide-reviewer.md
-~/.config/opencode/opencode.json
-```
-
-Existing OpenCode JSONC settings are preserved as values. Before normalization, Tide creates `opencode.json.tide-backup` once.
-
-When `code-review-graph` is installed, Tide registers its official local MCP command alongside the Tide MCP. Otherwise, Tide keeps a direct-search fallback.
-
-## Human and JSON output
-
-CLI output is human-readable by default:
-
-```bash
-tide status
-tide check
-tide doctor
-```
-
-Use `--json` for scripts or debugging MCP payloads. It may appear before or after the command:
-
-```bash
-tide --json status
-tide status --json
-```
-
-MCP transport remains JSON-RPC and is not affected by CLI formatting.
-
-## Update
-
-`tide update` asks `uv` to reinstall the currently registered `tide-protocol` tool, then reapplies only the Codex/OpenCode adapters already installed:
+Update later with:
 
 ```bash
 tide update
 ```
 
-Inspect first:
+## State
 
-```bash
-tide update --dry-run
-```
+Durable state:
 
-The update uses the source and constraints recorded by `uv tool install`.
+- global Tide Skill;
+- quality and hardgate rules;
+- engine adapters;
+- short Module Locks under `.tide/locks/`.
 
-## Uninstall
+Temporary state lives under `<git-dir>/tide/`:
 
-Preview everything that will be removed:
+- current task and boundary;
+- validation evidence and full logs;
+- review packets;
+- reviewer verdict.
 
-```bash
-tide uninstall --dry-run
-```
+Temporary evidence is not versioned. Validation and review are tied to the exact diff fingerprint.
 
-Remove all detected Tide adapters, the shared Skill, and the `uv` tool:
-
-```bash
-tide uninstall --yes
-```
-
-Remove only one adapter. If another adapter remains, the shared Skill and package are kept automatically:
-
-```bash
-tide uninstall --codex --yes
-tide uninstall --opencode --yes
-```
-
-Remove integrations but keep the command installed:
-
-```bash
-tide uninstall --keep-tool --yes
-```
-
-Uninstall removes only Tide-managed blocks, reviewer files, the Tide MCP registration, and the shared Tide Skill. It preserves unrelated Codex/OpenCode settings and keeps `code-review-graph` as an independent integration. Project `.tide/locks/` are versioned contracts and are not deleted.
-
-## Initialize a project
-
-```bash
-cd my-project
-tide init
-```
-
-This creates only:
-
-```text
-.tide/
-  locks/
-```
-
-## Normal agent flow
-
-The user opens Codex or OpenCode normally and describes the change.
-
-The engine must:
-
-1. load the Tide Skill;
-2. call Tide `prepare` with the smallest likely boundary;
-3. use code-review-graph MCP tools when available;
-4. not edit while `mutation_allowed` is false;
-5. request supervisor authorization for pending hardgates;
-6. implement with one writer;
-7. validate through Tide;
-8. use `tide-reviewer` only when required;
-9. call Tide `check`;
-10. report completion only when `ready` is true.
-
-## Manual equivalent
+## Normal flow
 
 ```bash
 tide prepare 'Fix EPUB footnote backlinks' \
@@ -181,27 +59,99 @@ tide prepare 'Fix EPUB footnote backlinks' \
 # Only after explicit supervisor approval:
 tide authorize --all
 
-tide context 'footnote backlink'
 tide validate -- pytest tests/epub -x
 
 # Only when review_required=true:
 tide review-packet
-tide review --approved
+# pass only the returned review_id to tide-reviewer
+tide review --review-id <review-id> --approved
 
 tide check
 ```
 
-`tide check` exits with status `2` when the implementation is not ready.
+The agent normally calls these operations through MCP.
+
+## Change scope without restarting
+
+Do not call a new `prepare` when implementation reveals another file or the review requests a correction.
+
+```bash
+tide boundary add .gitlab-ci.yml
+tide boundary remove old-file.py
+
+tide revise \
+  --task 'Correct review findings' \
+  --add-file .gitlab-ci.yml
+```
+
+`revise` preserves the original working-tree baseline, recalculates policy and Module Locks, and invalidates previous validation and review evidence. It does not create a false `dirty_boundary` for changes produced by the current task.
+
+## Validation output
+
+Validation returns compact evidence by default:
+
+```text
+Passou: sim
+Código de saída: 0
+Duração: 2.13s
+Log ID: validation-...
+```
+
+Full stdout and stderr stay under `<git-dir>/tide/logs/` and are loaded only when needed:
+
+```bash
+tide validation-log <log-id>
+tide validate --verbose -- pytest -q
+```
+
+## Independent review
+
+`tide review-packet` stores the detailed packet and returns only:
+
+- `review_id`;
+- resource URI;
+- files and diff size;
+- validation count;
+- review focus.
+
+The main writer passes only `review_id` to `tide-reviewer`. The reviewer reads the packet directly with Tide `review_get` or the MCP resource:
+
+```text
+tide://reviews/<review-id>
+```
+
+This keeps the full diff out of the writer's context.
+
+## Context and code-review-graph
+
+Tide treats current code, Git state, current diff, and real validations as truth.
+
+When `code-review-graph` is available, Tide recommends a sequence based on context quality:
+
+- build the graph if the index is missing;
+- use architecture overview and semantic search for broad or weak results;
+- use minimal context and impact analysis for focused tasks;
+- confirm all findings against current code.
 
 ## Hardgates
 
-Hardgates stop mutation for sensitive work such as production, migrations, auth, secrets, real data, infrastructure, public API contracts, dependencies, or protected Module Lock contracts.
+Hardgates stop mutation until explicit supervisor authorization for sensitive work such as:
 
-The MCP `authorize` and `validate` tools are configured to require host approval.
+- production and deploy;
+- database and migrations;
+- auth and secrets;
+- real data or reprocessing;
+- infrastructure and CI/CD;
+- public API contracts;
+- dependencies and package manifests;
+- protected Module Lock contracts;
+- pre-existing changes inside the task boundary.
+
+Dependency detection includes `pyproject.toml`, `setup.py`, `setup.cfg`, requirements files, lock files, Node, Go, Rust, Ruby, Java/Gradle, and Composer manifests.
 
 ## Module Locks
 
-A Module Lock protects a mature module. It records only what is expensive or unsafe to rediscover:
+A Module Lock protects a mature production module. It records only what is expensive or unsafe to rediscover:
 
 - stable responsibility;
 - invariants;
@@ -209,54 +159,48 @@ A Module Lock protects a mature module. It records only what is expensive or uns
 - mandatory validations;
 - sensitive changes.
 
-Create a draft:
-
 ```bash
 tide lock draft src/epub --name epub-generation
 tide lock validate .tide/locks/epub-generation.md
 ```
 
-Example:
-
-```markdown
-+++
-name = "epub-generation"
-paths = ["src/epub/**", "tests/epub/**"]
-criticality = "production"
-review_required = true
-validations = ["pytest tests/epub -x", "epubcheck tests/fixtures/book.epub"]
-invariants = ["Output passes EPUBCheck", "Footnotes keep bidirectional links"]
-sensitive_changes = ["identifier strategy", "reading order", "persistence"]
-+++
-# EPUB generation
-
-## Responsibility
-
-Generate a valid EPUB from the normalized book model.
-
-## Contracts
-
-Input is the normalized book. Persistence belongs to another service.
-```
-
 Do not document every class, file, or function.
+
+## CLI output
+
+Human-readable output is the default. Use `--json` for scripts:
+
+```bash
+tide status
+tide status --json
+```
 
 ## MCP surface
 
-Tide exposes ten tools:
+Tide exposes:
 
-- `prepare`
-- `authorize`
-- `context`
-- `check`
-- `validate`
-- `review_packet`
-- `record_review`
-- `lock_list`
-- `lock_template`
-- `status`
+- `prepare` and `revise`;
+- `authorize`;
+- `context`;
+- `validate` and `validation_log`;
+- `review_packet`, `review_get`, and `record_review`;
+- `check` and `status`;
+- `lock_list` and `lock_template`.
 
-OpenCode prefixes MCP tools with the server name, for example `tide_prepare`.
+Review packets are also MCP resources under `tide://reviews/`.
+
+## Communication
+
+Adapters require short, direct communication. Agents should not announce routine steps or maintain visible todos unless requested. They should interrupt only for authorization, a real blocker, or the final checkpoint.
+
+## Uninstall
+
+```bash
+tide uninstall --dry-run
+tide uninstall --yes
+```
+
+Tide removes only its managed blocks, reviewer files, MCP registration, shared Skill, and package. It preserves unrelated Codex/OpenCode settings and independent `code-review-graph` configuration.
 
 ## Development
 
@@ -267,18 +211,12 @@ pip install -e . pytest
 pytest
 ```
 
-## Deliberate omissions
-
-This experiment does not include:
+Deliberate omissions:
 
 - versioned Waves;
-- persistent evidence;
+- persistent execution history;
 - Taiga integration;
 - report agents;
-- a fleet of specialized reviewers;
+- fleets of specialized reviewers;
 - automatic commits;
 - a second implementation of code-review-graph.
-
-The experiment validates a smaller idea:
-
-> live code + Module Locks + explicit hardgates + real validation + one optional reviewer.
