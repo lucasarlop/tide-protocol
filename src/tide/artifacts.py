@@ -12,6 +12,8 @@ from .project import TideError, read_json, runtime_dir, write_json
 
 
 TAIL_LINES = 20
+TAIL_LINE_CHARS = 400
+TAIL_TOTAL_BYTES = 4096
 
 
 def _timestamp() -> str:
@@ -25,9 +27,32 @@ def _safe_id(value: str, *, label: str) -> str:
     return value
 
 
-def _tail(text: str, limit: int = TAIL_LINES) -> list[str]:
-    lines = [line for line in text.splitlines() if line.strip()]
-    return lines[-limit:]
+def _clip_line(line: str) -> str:
+    if len(line) <= TAIL_LINE_CHARS:
+        return line
+    return line[: TAIL_LINE_CHARS - 16] + "...[line clipped]"
+
+
+def _tail(
+    text: str,
+    limit: int = TAIL_LINES,
+    max_bytes: int = TAIL_TOTAL_BYTES,
+) -> list[str]:
+    lines = [_clip_line(line) for line in text.splitlines() if line.strip()]
+    selected: list[str] = []
+    used = 0
+    for line in reversed(lines[-limit:]):
+        encoded = len(line.encode("utf-8", errors="replace")) + 1
+        if selected and used + encoded > max_bytes:
+            break
+        if not selected and encoded > max_bytes:
+            line = line.encode("utf-8", errors="replace")[: max_bytes - 20].decode(
+                "utf-8", errors="ignore"
+            ) + "...[tail clipped]"
+            encoded = len(line.encode("utf-8", errors="replace"))
+        selected.append(line)
+        used += encoded
+    return list(reversed(selected))
 
 
 def save_validation_log(root: Path, result: dict[str, Any]) -> dict[str, Any]:
