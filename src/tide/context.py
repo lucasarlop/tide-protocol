@@ -7,6 +7,17 @@ from typing import Any
 
 
 MAX_RESULTS = 30
+BROAD_TERMS = {
+    "architecture",
+    "arquitetura",
+    "pipeline",
+    "flow",
+    "fluxo",
+    "module",
+    "módulo",
+    "system",
+    "sistema",
+}
 
 
 def graph_status(root: Path) -> dict[str, Any]:
@@ -21,26 +32,51 @@ def graph_status(root: Path) -> dict[str, Any]:
 
 def query_context(root: Path, query: str) -> dict[str, Any]:
     status = graph_status(root)
+    hits = _direct_search(root, query)
+    words = {word.strip(".,:;()[]{}").lower() for word in query.split()}
+    broad = bool(words & BROAD_TERMS)
+    quality = "good" if len(hits) >= 3 else "insufficient"
     response: dict[str, Any] = {
         "query": query,
         "truth": "current code + git status + current diff + real validations",
         "graph": status,
-        "direct_search": _direct_search(root, query),
+        "direct_search": hits,
+        "context_quality": quality,
     }
     if status["available"]:
-        response["preferred_graph_tools"] = [
-            "get_minimal_context_tool",
-            "semantic_search_nodes_tool",
-            "query_graph_tool",
-            "get_impact_radius_tool",
-        ]
-        response["instruction"] = (
-            "Use the code-review-graph MCP for structural context, then confirm findings "
-            "against current code. Tide does not duplicate the graph implementation."
-        )
+        if not status["index_exists"]:
+            response["recommended_sequence"] = [
+                "build_or_update_graph_tool",
+                "get_architecture_overview_tool" if broad else "semantic_search_nodes_tool",
+                "get_minimal_context_tool",
+            ]
+            response["instruction"] = (
+                "Build the graph first. Use structural results, then confirm against current code."
+            )
+        elif broad or quality == "insufficient":
+            response["recommended_sequence"] = [
+                "get_architecture_overview_tool",
+                "semantic_search_nodes_tool",
+                "get_minimal_context_tool",
+            ]
+            response["instruction"] = (
+                "The first context is broad or weak. Use architecture overview and semantic search "
+                "before starting a wide manual exploration. Confirm findings against current code."
+            )
+        else:
+            response["recommended_sequence"] = [
+                "get_minimal_context_tool",
+                "query_graph_tool",
+                "get_impact_radius_tool",
+            ]
+            response["instruction"] = (
+                "Use the code-review-graph MCP for structural context, then confirm findings "
+                "against current code."
+            )
     else:
+        response["recommended_sequence"] = ["direct_search", "read_current_code"]
         response["instruction"] = (
-            "code-review-graph is unavailable. Use the direct-search hits and read current code."
+            "code-review-graph is unavailable. Use direct-search hits and read current code."
         )
     return response
 
