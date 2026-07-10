@@ -84,7 +84,7 @@ def tools() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "gates": {"type": "array", "items": {"type": "string"}},
-                    "all": {"type": "boolean", "default": false},
+                    "all": {"type": "boolean", "default": False},
                 },
             },
         },
@@ -110,7 +110,7 @@ def tools() -> list[dict[str, Any]]:
                 "properties": {
                     "command": {"type": "array", "items": {"type": "string"}},
                     "timeout": {"type": "integer", "minimum": 1},
-                    "background": {"type": "boolean", "default": false},
+                    "background": {"type": "boolean", "default": False},
                 },
                 "required": ["command"],
             },
@@ -209,7 +209,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         return authorize(
             root,
             list(arguments.get("gates") or []),
-            all_gates=bool(arguments.get("all", false)),
+            all_gates=bool(arguments.get("all", False)),
         )
     if name == "context":
         return query_context(root, str(arguments["query"]))
@@ -218,7 +218,7 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "validate":
         command = list(arguments["command"])
         timeout = int(arguments.get("timeout", 300))
-        if bool(arguments.get("background", false)):
+        if bool(arguments.get("background", False)):
             return start_validation(root, command, timeout)
         return record_validation(root, command, timeout)
     if name == "validation_status":
@@ -304,7 +304,7 @@ def handle(request: dict[str, Any]) -> None:
                         }
                     ],
                     "structuredContent": value,
-                    "isError": false,
+                    "isError": False,
                 },
             )
         except Exception as exc:
@@ -312,7 +312,7 @@ def handle(request: dict[str, Any]) -> None:
                 request_id,
                 result={
                     "content": [{"type": "text", "text": str(exc)}],
-                    "isError": true,
+                    "isError": True,
                 },
             )
     elif method == "resources/list":
