@@ -19,3 +19,8 @@ def test_sensitive_paths_are_detected_without_prompt_keywords() -> None:
     decision = decide("ajustar arquivos", [".github/workflows/ci.yml", "pyproject.toml"], [])
     assert "infrastructure" in decision.hardgates
     assert "dependency" in decision.hardgates
+
+
+def test_product_word_does_not_trigger_production_hardgate() -> None:
+    decision = decide("adjust product service", ["src/product.py"], [])
+    assert "production" not in decision.hardgates

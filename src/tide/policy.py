@@ -7,7 +7,7 @@ from .locks import ModuleLock
 
 
 HARDGATE_KEYWORDS: dict[str, tuple[str, ...]] = {
-    "production": ("production", "produção", "prod", "deploy", "implantar"),
+    "production": ("production", "produção", "deploy", "implantar"),
     "database": ("database", " banco ", " db ", "migration", "migrate", "migração"),
     "auth": ("auth", "autenticação", "permission", "permissão", "authorization", "login", "jwt"),
     "secrets": ("secret", "segredo", "token", "credential", "credencial", "password", "senha", "api key"),
