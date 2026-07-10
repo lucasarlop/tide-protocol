@@ -11,6 +11,7 @@ from .core import (
     authorize,
     check,
     create_review_packet,
+    external_acknowledge,
     get_review_packet,
     prepare,
     preparation_report,
@@ -28,14 +29,31 @@ from .project import TideError, project_root
 INSTRUCTIONS = """Tide is the mandatory quality protocol for code changes.
 Load the global Tide skill. Call prepare before editing and check before reporting completion.
 Declare the validations that must be current for the final diff. Use revise, not a new prepare, when the task, boundary, or validation plan changes.
+Do not absorb unrelated changed files into the task boundary. Use external_acknowledge with a concrete reason for stable external changes.
+Adding an already-changed file to the boundary creates a scope_expansion hardgate.
 Do not edit while mutation_allowed is false. Use one writer.
 Use validate with background=true for commands likely to outlive the MCP request, then poll validation_status.
 Create a review packet only when review is required; pass its review_id to tide-reviewer.
 The reviewer reads the packet with review_get and submits the verdict directly with review_submit using the packet token.
+A truncated review packet cannot be approved. Reduce the task boundary or acknowledge unrelated external changes.
 The writer must not relay or rewrite reviewer findings.
 Treat Module Locks and pending hardgates as mandatory. Never commit or push without explicit supervisor approval.
-Use code-review-graph MCP tools before implementation when available, then confirm against current code.
+Use code-review-graph only when its results are relevant, then confirm against current code.
 Do not announce routine steps or maintain visible todos unless requested. Interrupt only for authorization, blockers, or the final checkpoint."""
+
+
+def _schema(
+    properties: dict[str, Any] | None = None,
+    required: list[str] | None = None,
+) -> dict[str, Any]:
+    value: dict[str, Any] = {
+        "type": "object",
+        "properties": properties or {},
+        "additionalProperties": False,
+    }
+    if required:
+        value["required"] = required
+    return value
 
 
 def tools() -> list[dict[str, Any]]:
@@ -43,9 +61,8 @@ def tools() -> list[dict[str, Any]]:
         {
             "name": "prepare",
             "description": "Prepare a code change with its boundary and explicit validation plan.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "inputSchema": _schema(
+                {
                     "task": {"type": "string"},
                     "files": {"type": "array", "items": {"type": "string"}},
                     "required_validations": {
@@ -54,15 +71,14 @@ def tools() -> list[dict[str, Any]]:
                         "description": "Exact commands that must pass for the final diff.",
                     },
                 },
-                "required": ["task"],
-            },
+                ["task"],
+            ),
         },
         {
             "name": "revise",
-            "description": "Revise the active task, boundary, or validation plan without resetting the original baseline. Invalidates validation and review evidence.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "description": "Revise the active task, boundary, or validation plan without resetting the original baseline. Adding already-changed files creates a scope_expansion hardgate.",
+            "inputSchema": _schema(
+                {
                     "task": {"type": "string"},
                     "add_files": {"type": "array", "items": {"type": "string"}},
                     "remove_files": {"type": "array", "items": {"type": "string"}},
@@ -74,120 +90,140 @@ def tools() -> list[dict[str, Any]]:
                         "type": "array",
                         "items": {"type": "string"},
                     },
+                }
+            ),
+        },
+        {
+            "name": "external_acknowledge",
+            "description": "Acknowledge stable changed files that are external to the task. They stay outside the boundary and are ignored only while their fingerprint remains unchanged.",
+            "inputSchema": _schema(
+                {
+                    "files": {"type": "array", "items": {"type": "string"}},
+                    "reason": {"type": "string"},
                 },
-            },
+                ["files", "reason"],
+            ),
         },
         {
             "name": "authorize",
             "description": "Record explicit supervisor authorization for pending hardgates. This is a sensitive action.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "inputSchema": _schema(
+                {
                     "gates": {"type": "array", "items": {"type": "string"}},
                     "all": {"type": "boolean", "default": False},
-                },
-            },
+                }
+            ),
         },
         {
             "name": "context",
-            "description": "Return direct live-code search and the next code-review-graph tools to use based on context quality.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"query": {"type": "string"}},
-                "required": ["query"],
-            },
+            "description": "Return direct live-code search and code-review-graph guidance based on context quality.",
+            "inputSchema": _schema({"query": {"type": "string"}}, ["query"]),
         },
         {
             "name": "check",
             "description": "Run the deterministic final quality gate for the current change.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "inputSchema": _schema(),
         },
         {
             "name": "validate",
             "description": "Run and record a validation command. Set background=true for long commands; poll validation_status with the returned validation_id.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "inputSchema": _schema(
+                {
                     "command": {"type": "array", "items": {"type": "string"}},
                     "timeout": {"type": "integer", "minimum": 1},
                     "background": {"type": "boolean", "default": False},
                 },
-                "required": ["command"],
-            },
+                ["command"],
+            ),
         },
         {
             "name": "validation_status",
             "description": "Poll a background validation. Completed jobs are recorded against the diff fingerprint captured at start.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"validation_id": {"type": "string"}},
-                "required": ["validation_id"],
-            },
+            "inputSchema": _schema(
+                {"validation_id": {"type": "string"}},
+                ["validation_id"],
+            ),
         },
         {
             "name": "validation_log",
             "description": "Read a full validation log by log_id. Use only when compact evidence is insufficient.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"log_id": {"type": "string"}},
-                "required": ["log_id"],
-            },
+            "inputSchema": _schema({"log_id": {"type": "string"}}, ["log_id"]),
         },
         {
             "name": "review_packet",
-            "description": "Create and store a review packet. Returns only review_id, resource URI, counts, and focus.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "description": "Create and store a review packet. Returns only review_id, resource URI, counts, focus, and truncation state.",
+            "inputSchema": _schema(),
         },
         {
             "name": "review_get",
             "description": "Read the detailed review packet, including the one-time submission token. Intended for tide-reviewer, not the writer.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {"review_id": {"type": "string"}},
-                "required": ["review_id"],
-            },
+            "inputSchema": _schema(
+                {"review_id": {"type": "string"}},
+                ["review_id"],
+            ),
         },
         {
             "name": "review_submit",
-            "description": "Submit the independent reviewer verdict directly. Requires the packet's one-time submission token.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "description": "Submit the independent reviewer verdict directly. Approval is rejected when the packet is truncated.",
+            "inputSchema": _schema(
+                {
                     "review_id": {"type": "string"},
                     "submission_token": {"type": "string"},
                     "approved": {"type": "boolean"},
                     "findings": {"type": "array", "items": {"type": "string"}},
                 },
-                "required": ["review_id", "submission_token", "approved"],
-            },
+                ["review_id", "submission_token", "approved"],
+            ),
         },
         {
             "name": "lock_list",
             "description": "List Module Locks in the current project.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "inputSchema": _schema(),
         },
         {
             "name": "lock_template",
             "description": "Generate a short Module Lock draft without writing it to disk.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
+            "inputSchema": _schema(
+                {
                     "scope": {"type": "string"},
                     "name": {"type": "string"},
                     "criticality": {"type": "string", "default": "production"},
                 },
-                "required": ["scope", "name"],
-            },
+                ["scope", "name"],
+            ),
         },
         {
             "name": "status",
-            "description": "Show the current Tide preparation, validation plan, and policy.",
-            "inputSchema": {"type": "object", "properties": {}},
+            "description": "Show the current Tide preparation, validation plan, external acknowledgements, and policy.",
+            "inputSchema": _schema(),
         },
     ]
 
 
+def _tool_schema(name: str) -> dict[str, Any]:
+    for tool in tools():
+        if tool["name"] == name:
+            return tool["inputSchema"]
+    raise TideError(f"unknown tool: {name}")
+
+
+def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
+    schema = _tool_schema(name)
+    allowed = set(schema.get("properties", {}))
+    unknown = sorted(set(arguments) - allowed)
+    if unknown:
+        raise TideError(f"unknown arguments for {name}: {', '.join(unknown)}")
+    missing = [
+        key
+        for key in schema.get("required", [])
+        if key not in arguments
+    ]
+    if missing:
+        raise TideError(f"missing arguments for {name}: {', '.join(missing)}")
+
+
 def call_tool(name: str, arguments: dict[str, Any]) -> Any:
+    _validate_arguments(name, arguments)
     root = project_root()
     if name == "prepare":
         return prepare(
@@ -204,6 +240,12 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             remove_files=list(arguments.get("remove_files") or []),
             add_required_validations=list(arguments.get("add_required_validations") or []),
             remove_required_validations=list(arguments.get("remove_required_validations") or []),
+        )
+    if name == "external_acknowledge":
+        return external_acknowledge(
+            root,
+            list(arguments["files"]),
+            reason=str(arguments["reason"]),
         )
     if name == "authorize":
         return authorize(
@@ -261,6 +303,51 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     raise TideError(f"unknown tool: {name}")
 
 
+def _tool_summary(name: str, value: Any) -> str:
+    if not isinstance(value, dict):
+        if isinstance(value, list):
+            return f"{name}: {len(value)} item(s)"
+        return f"{name}: completed"
+
+    if name in {"prepare", "revise", "status"}:
+        pending = value.get("pending_hardgates") or []
+        state = "mutation allowed" if value.get("mutation_allowed") else "mutation blocked"
+        return f"{name}: {state}; {len(pending)} pending hardgate(s)"
+    if name == "external_acknowledge":
+        return f"external_acknowledge: {len(value.get('acknowledged') or [])} file(s) acknowledged"
+    if name == "validate":
+        if value.get("validation_id") and value.get("status") in {"starting", "running"}:
+            return f"validate: running as {value['validation_id']}"
+        return (
+            f"validate: {'passed' if value.get('passed') else 'failed'}; "
+            f"exit {value.get('exit_code')}; log {value.get('log_id', 'pending')}"
+        )
+    if name == "validation_status":
+        return (
+            f"validation_status: {value.get('status')}; "
+            f"{'passed' if value.get('passed') else 'not passed'}"
+        )
+    if name == "review_packet":
+        return (
+            f"review_packet: {value.get('review_id')}; "
+            f"{value.get('diff_bytes', 0)} bytes; "
+            f"truncated={bool(value.get('diff_truncated'))}"
+        )
+    if name == "review_submit":
+        return (
+            f"review_submit: {'approved' if value.get('approved') else 'blocked'}; "
+            f"{len(value.get('findings') or [])} finding(s)"
+        )
+    if name == "check":
+        return (
+            f"check: {'ready' if value.get('ready') else 'blocked'}; "
+            f"{len(value.get('blockers') or [])} blocker(s)"
+        )
+    if name == "validation_log":
+        return f"validation_log: {value.get('log_id')}"
+    return f"{name}: completed"
+
+
 def respond(request_id: Any, *, result: Any = None, error: str | None = None) -> None:
     if request_id is None:
         return
@@ -281,7 +368,7 @@ def handle(request: dict[str, Any]) -> None:
             result={
                 "protocolVersion": "2025-03-26",
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "tide", "version": "0.6.0a4"},
+                "serverInfo": {"name": "tide", "version": "0.6.0a5"},
                 "instructions": INSTRUCTIONS,
             },
         )
@@ -289,20 +376,13 @@ def handle(request: dict[str, Any]) -> None:
         respond(request_id, result={"tools": tools()})
     elif method == "tools/call":
         params = request.get("params") or {}
+        name = str(params.get("name"))
         try:
-            value = call_tool(
-                str(params.get("name")),
-                dict(params.get("arguments") or {}),
-            )
+            value = call_tool(name, dict(params.get("arguments") or {}))
             respond(
                 request_id,
                 result={
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": json.dumps(value, indent=2, ensure_ascii=False),
-                        }
-                    ],
+                    "content": [{"type": "text", "text": _tool_summary(name, value)}],
                     "structuredContent": value,
                     "isError": False,
                 },
