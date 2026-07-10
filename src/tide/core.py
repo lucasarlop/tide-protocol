@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import ast
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .artifacts import (
+    read_review_packet,
+    read_validation_log,
+    save_review_packet,
+    save_validation_log,
+)
 from .commands import run_validation
 from .locks import matching_locks
 from .policy import decide
@@ -13,6 +20,7 @@ from .project import (
     current_diff,
     diff_fingerprint,
     file_fingerprints,
+    is_tracked_in_head,
     load_runtime,
     save_runtime,
 )
@@ -36,7 +44,8 @@ def prepare(root: Path, task: str, files: list[str] | None = None) -> dict[str, 
         reasons.append("pre-existing changes overlap the boundary")
 
     runtime = {
-        "version": 1,
+        "version": 2,
+        "revision": 0,
         "task": task,
         "status": "prepared",
         "created_at": now_iso(),
@@ -52,6 +61,56 @@ def prepare(root: Path, task: str, files: list[str] | None = None) -> dict[str, 
         "validations": [],
         "review": None,
     }
+    save_runtime(root, runtime)
+    return preparation_report(root, runtime)
+
+
+def revise(
+    root: Path,
+    *,
+    task: str | None = None,
+    add_files: list[str] | None = None,
+    remove_files: list[str] | None = None,
+) -> dict[str, Any]:
+    runtime = load_runtime(root)
+    if not runtime:
+        raise TideError("run tide prepare before revise")
+
+    boundary = set(runtime.get("boundary", []))
+    boundary.update(add_files or [])
+    boundary.difference_update(remove_files or [])
+    new_boundary = sorted(boundary)
+    if not new_boundary:
+        raise TideError("revised boundary cannot be empty")
+
+    new_task = task if task is not None else str(runtime.get("task", ""))
+    locks = matching_locks(root, new_boundary)
+    policy = decide(new_task, new_boundary, locks)
+    baseline_files = list(runtime.get("baseline_files", []))
+    dirty_boundary = sorted(path for path in baseline_files if _inside(path, new_boundary))
+    hardgates = set(policy.hardgates)
+    reasons = list(policy.reasons)
+    if dirty_boundary:
+        hardgates.add("dirty_boundary")
+        reasons.append("pre-existing changes overlap the boundary")
+
+    previously_authorized = set(runtime.get("authorized_hardgates", []))
+    runtime.update(
+        {
+            "task": new_task,
+            "status": "revising",
+            "updated_at": now_iso(),
+            "revision": int(runtime.get("revision", 0)) + 1,
+            "boundary": new_boundary,
+            "hardgates": sorted(hardgates),
+            "authorized_hardgates": sorted(previously_authorized & hardgates),
+            "review_required": policy.review_required or bool(dirty_boundary),
+            "review_reasons": list(dict.fromkeys(reasons)),
+            "locks": [lock.name for lock in locks],
+            "validations": [],
+            "review": None,
+        }
+    )
     save_runtime(root, runtime)
     return preparation_report(root, runtime)
 
@@ -94,6 +153,7 @@ def preparation_report(
     return {
         "task": runtime.get("task"),
         "status": runtime.get("status"),
+        "revision": int(runtime.get("revision", 0)),
         "boundary": boundary,
         "boundary_required": not bool(boundary),
         "preexisting_changes": runtime.get("baseline_files", []),
@@ -132,9 +192,15 @@ def record_validation(
     if not runtime:
         raise TideError("run tide prepare before validation")
     result = run_validation(root, command, timeout=timeout)
+    log_meta = save_validation_log(root, result)
     task_files = _task_files(root, runtime)
     evidence = {
-        **result,
+        "command": list(result.get("command", [])),
+        "exit_code": int(result.get("exit_code", 1)),
+        "passed": bool(result.get("passed", False)),
+        "timed_out": bool(result.get("timed_out", False)),
+        "duration_seconds": result.get("duration_seconds"),
+        **log_meta,
         "created_at": now_iso(),
         "files": task_files,
         "diff_fingerprint": diff_fingerprint(root, task_files),
@@ -145,22 +211,33 @@ def record_validation(
     return evidence
 
 
+def validation_log(root: Path, log_id: str) -> dict[str, Any]:
+    return read_validation_log(root, log_id)
+
+
 def record_review(
     root: Path,
     *,
     approved: bool,
     findings: list[str],
+    review_id: str | None = None,
 ) -> dict[str, Any]:
     runtime = load_runtime(root)
     if not runtime:
         raise TideError("run tide prepare before review")
     task_files = _task_files(root, runtime)
+    fingerprint = diff_fingerprint(root, task_files)
+    if review_id:
+        packet = read_review_packet(root, review_id)
+        if packet.get("diff_fingerprint") != fingerprint:
+            raise TideError("review packet is stale for the current diff")
     runtime["review"] = {
         "approved": approved,
         "findings": findings,
+        "review_id": review_id,
         "created_at": now_iso(),
         "files": task_files,
-        "diff_fingerprint": diff_fingerprint(root, task_files),
+        "diff_fingerprint": fingerprint,
     }
     runtime["updated_at"] = now_iso()
     save_runtime(root, runtime)
@@ -180,6 +257,8 @@ def review_packet(root: Path) -> dict[str, Any]:
         for item in runtime.get("validations", [])
         if item.get("diff_fingerprint") == fingerprint
     ]
+    simplicity = _simplicity_signals(root, task_files)
+    focus = list(dict.fromkeys([*runtime.get("review_reasons", []), *simplicity]))
     return {
         "task": runtime.get("task"),
         "boundary": runtime.get("boundary", []),
@@ -200,10 +279,26 @@ def review_packet(root: Path) -> dict[str, Any]:
         ],
         "validations": current_validations,
         "stale_validation_count": len(runtime.get("validations", [])) - len(current_validations),
-        "review_focus": runtime.get("review_reasons", []),
+        "review_focus": focus,
         "instruction": (
-            "Read-only review. Return concise blocking and non-blocking findings."
+            "Read-only review. Return concise blocking and non-blocking findings. "
+            "Check behavior, stability, tests, security, and simplicity only when signaled."
         ),
+    }
+
+
+def create_review_packet(root: Path) -> dict[str, Any]:
+    return save_review_packet(root, review_packet(root))
+
+
+def get_review_packet(root: Path, review_id: str) -> dict[str, Any]:
+    packet = read_review_packet(root, review_id)
+    runtime = load_runtime(root)
+    task_files = _task_files(root, runtime) if runtime else []
+    current = diff_fingerprint(root, task_files)
+    return {
+        **packet,
+        "current": packet.get("diff_fingerprint") == current,
     }
 
 
@@ -242,10 +337,12 @@ def check(root: Path) -> dict[str, Any]:
     failures = [item for item in current_validations if not item.get("passed")]
     stale_validations = len(validations) - len(current_validations)
 
+    simplicity = _simplicity_signals(root, task_files)
     review_required = (
         bool(runtime and runtime.get("review_required"))
         or actual_policy.review_required
         or any(lock.review_required for lock in locks)
+        or bool(simplicity)
     )
     review = runtime.get("review") if runtime else None
     review_current = bool(
@@ -283,6 +380,7 @@ def check(root: Path) -> dict[str, Any]:
                 [
                     *runtime.get("review_reasons", []),
                     *actual_policy.reasons,
+                    *simplicity,
                 ]
             )
         )
@@ -305,6 +403,7 @@ def check(root: Path) -> dict[str, Any]:
         "stale_validation_count": stale_validations,
         "failed_validation_count": len(failures),
         "review_required": review_required,
+        "review_reasons": list(runtime.get("review_reasons", [])) if runtime else list(simplicity),
         "review_current": review_current,
         "review": review,
         "hardgates": sorted(hardgates),
@@ -312,6 +411,32 @@ def check(root: Path) -> dict[str, Any]:
         "pending_hardgates": pending_hardgates,
         "blockers": blockers,
     }
+
+
+def _simplicity_signals(root: Path, files: list[str]) -> list[str]:
+    signals: list[str] = []
+    for raw in files:
+        path = root / raw
+        if not path.is_file() or path.suffix.lower() not in {".py", ".js", ".ts", ".tsx", ".java", ".go", ".rs"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        lines = text.count("\n") + 1
+        if not is_tracked_in_head(root, raw) and lines > 400:
+            signals.append(f"simplicity: new file {raw} has {lines} lines")
+        if path.suffix.lower() == ".py":
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            for node in ast.walk(tree):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and getattr(node, "end_lineno", None):
+                    size = int(node.end_lineno) - int(node.lineno) + 1
+                    if size > 100:
+                        signals.append(f"simplicity: function {node.name} in {raw} has {size} lines")
+    return list(dict.fromkeys(signals))
 
 
 def _task_files(root: Path, runtime: dict[str, Any]) -> list[str]:
