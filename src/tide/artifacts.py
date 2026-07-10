@@ -28,9 +28,10 @@ def _safe_id(value: str, *, label: str) -> str:
 
 
 def _clip_line(line: str) -> str:
+    suffix = "...[line clipped]"
     if len(line) <= TAIL_LINE_CHARS:
         return line
-    return line[: TAIL_LINE_CHARS - 16] + "...[line clipped]"
+    return line[: TAIL_LINE_CHARS - len(suffix)] + suffix
 
 
 def _tail(
@@ -46,9 +47,10 @@ def _tail(
         if selected and used + encoded > max_bytes:
             break
         if not selected and encoded > max_bytes:
-            line = line.encode("utf-8", errors="replace")[: max_bytes - 20].decode(
+            suffix = "...[tail clipped]"
+            line = line.encode("utf-8", errors="replace")[: max_bytes - len(suffix)].decode(
                 "utf-8", errors="ignore"
-            ) + "...[tail clipped]"
+            ) + suffix
             encoded = len(line.encode("utf-8", errors="replace"))
         selected.append(line)
         used += encoded
