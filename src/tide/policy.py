@@ -14,13 +14,18 @@ HARDGATE_KEYWORDS: dict[str, tuple[str, ...]] = {
     "data": ("real data", "dados reais", "reprocess", "reprocessar", "reprocessing", "backfill"),
     "infrastructure": ("infrastructure", "infraestrutura", "docker", "kubernetes", "ci/cd", "pipeline"),
     "public_api": ("public api", "api pública", "api contract", "contrato da api", "breaking change"),
-    "dependency": ("dependency", "dependência", "package", "pacote", "library", "biblioteca", "upgrade"),
+    "dependency": ("dependency", "dependência", "package", "pacote", "library", "biblioteca", "upgrade", "install"),
 }
 
 DEPENDENCY_FILES = {
     "pyproject.toml",
+    "setup.py",
+    "setup.cfg",
     "requirements.txt",
     "requirements-dev.txt",
+    "requirements.in",
+    "pipfile",
+    "pipfile.lock",
     "poetry.lock",
     "uv.lock",
     "pdm.lock",
@@ -28,10 +33,20 @@ DEPENDENCY_FILES = {
     "package-lock.json",
     "pnpm-lock.yaml",
     "yarn.lock",
+    "bun.lock",
+    "bun.lockb",
     "go.mod",
     "go.sum",
     "cargo.toml",
     "cargo.lock",
+    "gemfile",
+    "gemfile.lock",
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "gradle.properties",
+    "composer.json",
+    "composer.lock",
 }
 
 
