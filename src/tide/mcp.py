@@ -3,26 +3,34 @@ from __future__ import annotations
 import json
 import sys
 from typing import Any
+from urllib.parse import urlparse
 
+from .artifacts import list_review_resources
 from .context import query_context
 from .core import (
     authorize,
     check,
+    create_review_packet,
+    get_review_packet,
     prepare,
     preparation_report,
     record_review,
     record_validation,
-    review_packet,
+    revise,
+    validation_log,
 )
 from .locks import load_locks, render_draft
 from .project import TideError, project_root
 
 
 INSTRUCTIONS = """Tide is the mandatory quality protocol for code changes.
-Load the global Tide skill. Call the Tide prepare tool before editing and Tide check before reporting completion.
-Do not edit while mutation_allowed is false. Use one writer. Use tide-reviewer only when Tide requires review.
+Load the global Tide skill. Call prepare before editing and check before reporting completion.
+Use revise, not a new prepare, when the task or boundary changes. Do not edit while mutation_allowed is false.
+Use one writer. Create a review packet only when review is required; pass its review_id to tide-reviewer.
+The reviewer reads the packet with review_get. Do not relay full diffs or validation logs through the main agent.
 Treat Module Locks and pending hardgates as mandatory. Never commit or push without explicit supervisor approval.
-Use code-review-graph MCP tools when available, then confirm against current code. Communicate in short, direct messages."""
+Use code-review-graph MCP tools when available, then confirm against current code.
+Do not announce routine steps or maintain visible todos unless requested. Interrupt only for authorization, blockers, or the final checkpoint."""
 
 
 def tools() -> list[dict[str, Any]]:
@@ -40,6 +48,18 @@ def tools() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "revise",
+            "description": "Revise the active task or boundary without resetting the original baseline. Invalidates validation and review evidence.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "task": {"type": "string"},
+                    "add_files": {"type": "array", "items": {"type": "string"}},
+                    "remove_files": {"type": "array", "items": {"type": "string"}},
+                },
+            },
+        },
+        {
             "name": "authorize",
             "description": "Record explicit supervisor authorization for pending hardgates. This is a sensitive action.",
             "inputSchema": {
@@ -52,7 +72,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "context",
-            "description": "Return direct live-code search plus guidance for the code-review-graph MCP tools.",
+            "description": "Return direct live-code search and the next code-review-graph tools to use based on context quality.",
             "inputSchema": {
                 "type": "object",
                 "properties": {"query": {"type": "string"}},
@@ -66,7 +86,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "validate",
-            "description": "Run and record an exact validation command. This executes a local process and requires approval by the host.",
+            "description": "Run and record a validation command. Returns compact evidence and a log_id; use validation_log only for failure diagnosis.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -77,9 +97,27 @@ def tools() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "validation_log",
+            "description": "Read a full validation log by log_id. Use only when compact evidence is insufficient.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"log_id": {"type": "string"}},
+                "required": ["log_id"],
+            },
+        },
+        {
             "name": "review_packet",
-            "description": "Return a compact read-only packet for tide-reviewer: task, diff, locks, validations, and focus.",
+            "description": "Create and store a review packet. Returns only review_id, resource URI, counts, and focus.",
             "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "review_get",
+            "description": "Read the detailed review packet by review_id. Intended for tide-reviewer, not the main writer.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"review_id": {"type": "string"}},
+                "required": ["review_id"],
+            },
         },
         {
             "name": "record_review",
@@ -89,6 +127,7 @@ def tools() -> list[dict[str, Any]]:
                 "properties": {
                     "approved": {"type": "boolean"},
                     "findings": {"type": "array", "items": {"type": "string"}},
+                    "review_id": {"type": "string"},
                 },
                 "required": ["approved"],
             },
@@ -123,6 +162,13 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     root = project_root()
     if name == "prepare":
         return prepare(root, str(arguments["task"]), list(arguments.get("files") or []))
+    if name == "revise":
+        return revise(
+            root,
+            task=str(arguments["task"]) if arguments.get("task") is not None else None,
+            add_files=list(arguments.get("add_files") or []),
+            remove_files=list(arguments.get("remove_files") or []),
+        )
     if name == "authorize":
         return authorize(root, list(arguments.get("gates") or []), all_gates=bool(arguments.get("all", False)))
     if name == "context":
@@ -131,10 +177,19 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         return check(root)
     if name == "validate":
         return record_validation(root, list(arguments["command"]), int(arguments.get("timeout", 300)))
+    if name == "validation_log":
+        return validation_log(root, str(arguments["log_id"]))
     if name == "review_packet":
-        return review_packet(root)
+        return create_review_packet(root)
+    if name == "review_get":
+        return get_review_packet(root, str(arguments["review_id"]))
     if name == "record_review":
-        return record_review(root, approved=bool(arguments["approved"]), findings=list(arguments.get("findings") or []))
+        return record_review(
+            root,
+            approved=bool(arguments["approved"]),
+            findings=list(arguments.get("findings") or []),
+            review_id=str(arguments["review_id"]) if arguments.get("review_id") else None,
+        )
     if name == "lock_list":
         return [
             {
@@ -178,8 +233,8 @@ def handle(request: dict[str, Any]) -> None:
             request_id,
             result={
                 "protocolVersion": "2025-03-26",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "tide", "version": "0.6.0a1"},
+                "capabilities": {"tools": {}, "resources": {}},
+                "serverInfo": {"name": "tide", "version": "0.6.0a3"},
                 "instructions": INSTRUCTIONS,
             },
         )
@@ -205,6 +260,33 @@ def handle(request: dict[str, Any]) -> None:
                     "isError": True,
                 },
             )
+    elif method == "resources/list":
+        try:
+            respond(request_id, result={"resources": list_review_resources(project_root())})
+        except Exception as exc:
+            respond(request_id, error=str(exc))
+    elif method == "resources/read":
+        try:
+            uri = str((request.get("params") or {}).get("uri", ""))
+            parsed = urlparse(uri)
+            if parsed.scheme != "tide" or parsed.netloc != "reviews" or not parsed.path.strip("/"):
+                raise TideError(f"unknown resource: {uri}")
+            review_id = parsed.path.strip("/")
+            packet = get_review_packet(project_root(), review_id)
+            respond(
+                request_id,
+                result={
+                    "contents": [
+                        {
+                            "uri": uri,
+                            "mimeType": "application/json",
+                            "text": json.dumps(packet, indent=2, ensure_ascii=False),
+                        }
+                    ]
+                },
+            )
+        except Exception as exc:
+            respond(request_id, error=str(exc))
     elif method == "ping":
         respond(request_id, result={})
     else:
