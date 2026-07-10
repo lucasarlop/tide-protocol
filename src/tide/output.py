@@ -15,6 +15,7 @@ LABELS = {
     "context": "Contexto",
     "task": "Tarefa",
     "status": "Status",
+    "revision": "Revisão",
     "boundary": "Fronteira",
     "boundary_required": "Fronteira necessária",
     "preexisting_changes": "Alterações pré-existentes",
@@ -39,14 +40,25 @@ LABELS = {
     "failed_validation_count": "Validações com falha",
     "review_current": "Review atual",
     "review": "Review",
+    "review_id": "Review ID",
+    "resource": "Recurso",
+    "review_focus": "Foco da review",
+    "validation_count": "Validações",
+    "diff_bytes": "Tamanho do diff",
+    "diff_truncated": "Diff truncado",
     "blockers": "Bloqueios",
     "passed": "Passou",
     "command": "Comando",
     "exit_code": "Código de saída",
     "timed_out": "Timeout",
     "duration_seconds": "Duração",
-    "stdout": "Saída",
-    "stderr": "Erro",
+    "log_id": "Log ID",
+    "log_path": "Log",
+    "stdout_tail": "Últimas linhas da saída",
+    "stderr_tail": "Últimas linhas de erro",
+    "stdout_bytes": "Bytes de saída",
+    "stderr_bytes": "Bytes de erro",
+    "content": "Conteúdo",
     "approved": "Aprovada",
     "findings": "Achados",
     "actions": "Ações",
@@ -67,7 +79,8 @@ LABELS = {
     "executable": "Executável",
     "mcp_command": "Comando MCP",
     "direct_search": "Resultados diretos",
-    "preferred_graph_tools": "Ferramentas preferidas do grafo",
+    "context_quality": "Qualidade do contexto",
+    "recommended_sequence": "Sequência recomendada",
     "instruction": "Instrução",
     "updated": "Atualizado",
     "uninstalled": "Desinstalado",
@@ -93,6 +106,7 @@ VALUE_TRANSLATIONS = {
 
 STATUS = {
     "prepared": "preparado",
+    "revising": "em revisão",
     "ready": "pronto",
     "blocked": "bloqueado",
 }
@@ -117,7 +131,6 @@ def render(value: object, *, title: str | None = None) -> list[str]:
 def _render_value(value: object, *, level: int, key: str | None = None) -> list[str]:
     prefix = "  " * level
     label = _label(key) if key else None
-
     if isinstance(value, dict):
         lines: list[str] = []
         if label:
@@ -140,7 +153,6 @@ def _render_value(value: object, *, level: int, key: str | None = None) -> list[
                 continue
             lines.extend(_render_value(item_value, level=level, key=item_key))
         return lines
-
     if isinstance(value, list):
         if not value:
             return [f"{prefix}{label}: nenhum"] if label else []
@@ -152,11 +164,7 @@ def _render_value(value: object, *, level: int, key: str | None = None) -> list[
                 heading = _dict_heading(item)
                 if heading:
                     lines.append(f"{item_prefix}- {heading}")
-                    remainder = {
-                        k: v
-                        for k, v in item.items()
-                        if k not in {"name", "title", "path", "file"}
-                    }
+                    remainder = {k: v for k, v in item.items() if k not in {"name", "title", "path", "file"}}
                     lines.extend(_render_value(remainder, level=item_level + 1))
                 else:
                     lines.append(f"{item_prefix}-")
@@ -164,14 +172,13 @@ def _render_value(value: object, *, level: int, key: str | None = None) -> list[
             else:
                 lines.append(f"{item_prefix}- {_format_scalar(key, item)}")
         return lines
-
     if label:
         return [f"{prefix}{label}: {_format_scalar(key, value)}"]
     return [f"{prefix}{_format_scalar(key, value)}"]
 
 
 def _dict_heading(value: dict[str, Any]) -> str | None:
-    for key in ("name", "title", "path", "file"):
+    for key in ("name", "title", "path", "file", "review_id", "log_id"):
         item = value.get(key)
         if item:
             return str(item)
@@ -195,6 +202,8 @@ def _format_scalar(key: str | None, value: object) -> str:
         return STATUS.get(value, value)
     if key == "duration_seconds" and isinstance(value, (int, float)):
         return f"{value:.2f}s"
+    if key in {"diff_bytes", "stdout_bytes", "stderr_bytes"} and isinstance(value, int):
+        return f"{value:,}".replace(",", ".")
     if isinstance(value, str):
         return VALUE_TRANSLATIONS.get(value, value)
     return str(value)
