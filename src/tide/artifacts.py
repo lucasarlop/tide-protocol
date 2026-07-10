@@ -47,6 +47,10 @@ def save_validation_log(root: Path, result: dict[str, Any]) -> dict[str, Any]:
         f"{stderr}\n"
     )
     path.write_text(content, encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
     return {
         "log_id": log_id,
         "log_path": str(path.relative_to(runtime_dir(root))),
