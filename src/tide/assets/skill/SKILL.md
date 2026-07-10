@@ -19,18 +19,20 @@ Control implementation quality. Do not track development history.
 
 - One writer.
 - Smallest safe change.
-- Do not expand scope.
+- Do not expand scope silently.
 - Respect Module Locks.
-- Call Tide `prepare` again if the boundary must change. This resets prior evidence.
+- Use Tide `revise` when the task or boundary changes. Do not call a new `prepare`; revise preserves the original baseline and invalidates old evidence.
 - Use `tide-reviewer` only when Tide says review is required.
 
 ## Before completion
 
 1. Run exact validations through Tide `validate`.
-2. When review is required, call Tide `review_packet`, delegate to `tide-reviewer`, then record the verdict with Tide `record_review`.
-3. Call Tide `check`.
-4. Do not report completion unless `ready` is true.
-5. Never commit or push without explicit supervisor approval.
+2. Use compact validation evidence. Read a full `validation_log` only when a failure or warning needs diagnosis.
+3. When review is required, call Tide `review_packet`, pass only its `review_id` to `tide-reviewer`, and let the reviewer read the packet directly with `review_get`.
+4. Record the verdict with Tide `record_review`, including the same `review_id`.
+5. Call Tide `check`.
+6. Do not report completion unless `ready` is true.
+7. Never commit or push without explicit supervisor approval.
 
 ## Communication
 
@@ -40,7 +42,9 @@ Caveman style:
 - concrete decisions;
 - no ceremonial preamble;
 - do not repeat the request;
-- do not narrate intentions;
+- do not narrate routine next steps;
+- do not maintain visible todos unless requested;
+- interrupt only for authorization, a real blocker, or the final checkpoint;
 - explain only decisions, risks, blockers, and evidence.
 
 ## Completion checkpoint
