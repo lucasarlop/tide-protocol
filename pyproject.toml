@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tide-protocol"
-version = "0.6.0a3"
+version = "0.6.0a4"
 description = "Minimal quality protocol for AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
