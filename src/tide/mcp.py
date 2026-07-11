@@ -16,6 +16,7 @@ from .core import (
     prepare,
     preparation_report,
     record_validation,
+    reopen,
     revise,
     start_validation,
     submit_review,
@@ -26,20 +27,19 @@ from .locks import load_locks, render_draft
 from .project import TideError, project_root
 
 
-INSTRUCTIONS = """Tide is the mandatory quality protocol for code changes.
-Load the global Tide skill. Call prepare before editing and check before reporting completion.
-Declare the validations that must be current for the final diff. Use revise, not a new prepare, when the task, boundary, or validation plan changes.
-Do not absorb unrelated changed files into the task boundary. Use external_acknowledge with a concrete reason for stable external changes.
-Adding an already-changed file to the boundary creates a scope_expansion hardgate.
-Do not edit while mutation_allowed is false. Use one writer.
-Use validate with background=true for commands likely to outlive the MCP request, then poll validation_status.
-Create a review packet only when review is required; pass its review_id to tide-reviewer.
-The reviewer reads the packet with review_get and submits the verdict directly with review_submit using the packet token.
-A truncated review packet cannot be approved. Reduce the task boundary or acknowledge unrelated external changes.
-The writer must not relay or rewrite reviewer findings.
-Treat Module Locks and pending hardgates as mandatory. Never commit or push without explicit supervisor approval.
-Use code-review-graph only when its results are relevant, then confirm against current code.
-Do not announce routine steps or maintain visible todos unless requested. Interrupt only for authorization, blockers, or the final checkpoint."""
+INSTRUCTIONS = """Tide keeps code changes safe and convergent.
+Call prepare before editing and check before reporting completion.
+Tide selects fast mode for ordinary changes and strict mode for sensitive hardgates or Module Locks.
+During implementation run targeted validations only for the files affected by the latest delta. Declare coverage with covers.
+Run final validations once near closure. Reuse current evidence for unaffected files.
+Create review_packet only after changed files have current passing validation coverage. Reviews after the first are incremental by default.
+Review findings must be classified as blocking, follow_up, or info. Only blocking findings stay in the current task.
+Do not implement follow-up improvements automatically. Report them for a separate task.
+Approved review locks closure: run only final validation and check. Use reopen only for a new blocking defect, then obtain closure_reopen authorization.
+When split_required is true, split the task or obtain explicit extended_investigation authorization. Do not continue expanding scope silently.
+Use background validation for long commands and poll validation_status.
+Do not absorb unrelated files into the boundary; use external_acknowledge for stable client-generated changes.
+A truncated review packet cannot be approved. Never commit or push without explicit supervisor approval."""
 
 
 def _schema(
@@ -56,11 +56,31 @@ def _schema(
     return value
 
 
+def _finding_schema() -> dict[str, Any]:
+    return {
+        "oneOf": [
+            {"type": "string"},
+            {
+                "type": "object",
+                "properties": {
+                    "severity": {
+                        "type": "string",
+                        "enum": ["blocking", "follow_up", "info"],
+                    },
+                    "message": {"type": "string"},
+                },
+                "required": ["severity", "message"],
+                "additionalProperties": False,
+            },
+        ]
+    }
+
+
 def tools() -> list[dict[str, Any]]:
     return [
         {
             "name": "prepare",
-            "description": "Prepare a code change with its boundary and explicit validation plan.",
+            "description": "Prepare a bounded change. Tide automatically selects fast or strict mode.",
             "inputSchema": _schema(
                 {
                     "task": {"type": "string"},
@@ -68,7 +88,7 @@ def tools() -> list[dict[str, Any]]:
                     "required_validations": {
                         "type": "array",
                         "items": {"type": "string"},
-                        "description": "Exact commands that must pass for the final diff.",
+                        "description": "Exact commands that must pass before closure.",
                     },
                 },
                 ["task"],
@@ -76,7 +96,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "revise",
-            "description": "Revise the active task, boundary, or validation plan without resetting the original baseline. Adding already-changed files creates a scope_expansion hardgate.",
+            "description": "Revise task, boundary, or validation plan. Evidence for unaffected files is retained.",
             "inputSchema": _schema(
                 {
                     "task": {"type": "string"},
@@ -94,8 +114,13 @@ def tools() -> list[dict[str, Any]]:
             ),
         },
         {
+            "name": "reopen",
+            "description": "Reopen an approved closure only for a concrete new blocking defect. Requires closure_reopen authorization before editing.",
+            "inputSchema": _schema({"reason": {"type": "string"}}, ["reason"]),
+        },
+        {
             "name": "external_acknowledge",
-            "description": "Acknowledge stable changed files that are external to the task. They stay outside the boundary and are ignored only while their fingerprint remains unchanged.",
+            "description": "Acknowledge stable changed files external to the task without adding them to its diff or boundary.",
             "inputSchema": _schema(
                 {
                     "files": {"type": "array", "items": {"type": "string"}},
@@ -106,7 +131,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "authorize",
-            "description": "Record explicit supervisor authorization for pending hardgates. This is a sensitive action.",
+            "description": "Record explicit supervisor authorization for pending hardgates.",
             "inputSchema": _schema(
                 {
                     "gates": {"type": "array", "items": {"type": "string"}},
@@ -116,29 +141,39 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "context",
-            "description": "Return direct live-code search and code-review-graph guidance based on context quality.",
+            "description": "Return direct live-code context and graph guidance when relevant.",
             "inputSchema": _schema({"query": {"type": "string"}}, ["query"]),
         },
         {
             "name": "check",
-            "description": "Run the deterministic final quality gate for the current change.",
+            "description": "Run the deterministic closure gate with scoped validation reuse and workflow budget checks.",
             "inputSchema": _schema(),
         },
         {
             "name": "validate",
-            "description": "Run and record a validation command. Set background=true for long commands; poll validation_status with the returned validation_id.",
+            "description": "Run a targeted or final validation. covers declares which changed files this evidence validates.",
             "inputSchema": _schema(
                 {
                     "command": {"type": "array", "items": {"type": "string"}},
                     "timeout": {"type": "integer", "minimum": 1},
                     "background": {"type": "boolean", "default": False},
+                    "covers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Task file paths or glob patterns covered by this command. Defaults to all changed task files.",
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": ["targeted", "final"],
+                        "default": "targeted",
+                    },
                 },
                 ["command"],
             ),
         },
         {
             "name": "validation_status",
-            "description": "Poll a background validation. Completed jobs are recorded against the diff fingerprint captured at start.",
+            "description": "Poll a background validation and record its scoped evidence when complete.",
             "inputSchema": _schema(
                 {"validation_id": {"type": "string"}},
                 ["validation_id"],
@@ -146,17 +181,25 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "validation_log",
-            "description": "Read a full validation log by log_id. Use only when compact evidence is insufficient.",
+            "description": "Read the full log only when compact evidence is insufficient.",
             "inputSchema": _schema({"log_id": {"type": "string"}}, ["log_id"]),
         },
         {
             "name": "review_packet",
-            "description": "Create and store a review packet. Returns only review_id, resource URI, counts, focus, and truncation state.",
-            "inputSchema": _schema(),
+            "description": "Create a validated review packet. Incremental by default after the first review.",
+            "inputSchema": _schema(
+                {
+                    "full": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Force a full review only when central architecture or invariants changed.",
+                    }
+                }
+            ),
         },
         {
             "name": "review_get",
-            "description": "Read the detailed review packet, including the one-time submission token. Intended for tide-reviewer, not the writer.",
+            "description": "Read the detailed review packet and its one-time submission token. Intended for tide-reviewer.",
             "inputSchema": _schema(
                 {"review_id": {"type": "string"}},
                 ["review_id"],
@@ -164,13 +207,13 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "review_submit",
-            "description": "Submit the independent reviewer verdict directly. Approval is rejected when the packet is truncated.",
+            "description": "Submit the reviewer verdict directly with structured severities. Follow-ups do not block closure.",
             "inputSchema": _schema(
                 {
                     "review_id": {"type": "string"},
                     "submission_token": {"type": "string"},
                     "approved": {"type": "boolean"},
-                    "findings": {"type": "array", "items": {"type": "string"}},
+                    "findings": {"type": "array", "items": _finding_schema()},
                 },
                 ["review_id", "submission_token", "approved"],
             ),
@@ -182,7 +225,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "lock_template",
-            "description": "Generate a short Module Lock draft without writing it to disk.",
+            "description": "Generate a short Module Lock draft without writing it.",
             "inputSchema": _schema(
                 {
                     "scope": {"type": "string"},
@@ -194,7 +237,7 @@ def tools() -> list[dict[str, Any]]:
         },
         {
             "name": "status",
-            "description": "Show the current Tide preparation, validation plan, external acknowledgements, and policy.",
+            "description": "Show mode, workflow budget, evidence, closure state, and pending hardgates.",
             "inputSchema": _schema(),
         },
     ]
@@ -213,11 +256,7 @@ def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
     unknown = sorted(set(arguments) - allowed)
     if unknown:
         raise TideError(f"unknown arguments for {name}: {', '.join(unknown)}")
-    missing = [
-        key
-        for key in schema.get("required", [])
-        if key not in arguments
-    ]
+    missing = [key for key in schema.get("required", []) if key not in arguments]
     if missing:
         raise TideError(f"missing arguments for {name}: {', '.join(missing)}")
 
@@ -241,6 +280,8 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
             add_required_validations=list(arguments.get("add_required_validations") or []),
             remove_required_validations=list(arguments.get("remove_required_validations") or []),
         )
+    if name == "reopen":
+        return reopen(root, reason=str(arguments["reason"]))
     if name == "external_acknowledge":
         return external_acknowledge(
             root,
@@ -260,15 +301,29 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     if name == "validate":
         command = list(arguments["command"])
         timeout = int(arguments.get("timeout", 300))
+        covers = list(arguments.get("covers") or [])
+        phase = str(arguments.get("phase") or "targeted")
         if bool(arguments.get("background", False)):
-            return start_validation(root, command, timeout)
-        return record_validation(root, command, timeout)
+            return start_validation(
+                root,
+                command,
+                timeout,
+                covers=covers,
+                phase=phase,
+            )
+        return record_validation(
+            root,
+            command,
+            timeout,
+            covers=covers,
+            phase=phase,
+        )
     if name == "validation_status":
         return validation_status(root, str(arguments["validation_id"]))
     if name == "validation_log":
         return validation_log(root, str(arguments["log_id"]))
     if name == "review_packet":
-        return create_review_packet(root)
+        return create_review_packet(root, full=bool(arguments.get("full", False)))
     if name == "review_get":
         return get_review_packet(root, str(arguments["review_id"]))
     if name == "review_submit":
@@ -305,43 +360,41 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
 
 def _tool_summary(name: str, value: Any) -> str:
     if not isinstance(value, dict):
-        if isinstance(value, list):
-            return f"{name}: {len(value)} item(s)"
         return f"{name}: completed"
-
-    if name in {"prepare", "revise", "status"}:
-        pending = value.get("pending_hardgates") or []
-        state = "mutation allowed" if value.get("mutation_allowed") else "mutation blocked"
-        return f"{name}: {state}; {len(pending)} pending hardgate(s)"
+    if name in {"prepare", "revise", "reopen", "status"}:
+        return (
+            f"{name}: mode={value.get('mode')}; "
+            f"mutation_allowed={bool(value.get('mutation_allowed'))}; "
+            f"split_required={bool(value.get('split_required'))}; "
+            f"closure_locked={bool(value.get('closure_locked'))}"
+        )
     if name == "external_acknowledge":
-        return f"external_acknowledge: {len(value.get('acknowledged') or [])} file(s) acknowledged"
+        return f"external_acknowledge: {len(value.get('acknowledged') or [])} file(s)"
     if name == "validate":
         if value.get("validation_id") and value.get("status") in {"starting", "running"}:
-            return f"validate: running as {value['validation_id']}"
+            return f"validate: running as {value['validation_id']}; phase={value.get('phase')}"
         return (
             f"validate: {'passed' if value.get('passed') else 'failed'}; "
-            f"exit {value.get('exit_code')}; log {value.get('log_id', 'pending')}"
+            f"phase={value.get('phase')}; log={value.get('log_id', 'pending')}"
         )
     if name == "validation_status":
-        return (
-            f"validation_status: {value.get('status')}; "
-            f"{'passed' if value.get('passed') else 'not passed'}"
-        )
+        return f"validation_status: {value.get('status')}; passed={bool(value.get('passed'))}"
     if name == "review_packet":
         return (
-            f"review_packet: {value.get('review_id')}; "
-            f"{value.get('diff_bytes', 0)} bytes; "
-            f"truncated={bool(value.get('diff_truncated'))}"
+            f"review_packet: {value.get('review_id')}; mode={value.get('review_mode')}; "
+            f"files={len(value.get('files') or [])}; truncated={bool(value.get('diff_truncated'))}"
         )
     if name == "review_submit":
         return (
             f"review_submit: {'approved' if value.get('approved') else 'blocked'}; "
-            f"{len(value.get('findings') or [])} finding(s)"
+            f"blocking={len(value.get('blocking_findings') or [])}; "
+            f"follow_up={len(value.get('follow_up_findings') or [])}"
         )
     if name == "check":
         return (
             f"check: {'ready' if value.get('ready') else 'blocked'}; "
-            f"{len(value.get('blockers') or [])} blocker(s)"
+            f"blockers={len(value.get('blockers') or [])}; "
+            f"follow_up={len(value.get('follow_up_tasks') or [])}"
         )
     if name == "validation_log":
         return f"validation_log: {value.get('log_id')}"
@@ -368,16 +421,18 @@ def handle(request: dict[str, Any]) -> None:
             result={
                 "protocolVersion": "2025-03-26",
                 "capabilities": {"tools": {}, "resources": {}},
-                "serverInfo": {"name": "tide", "version": "0.6.0a5"},
+                "serverInfo": {"name": "tide", "version": "0.6.0a6"},
                 "instructions": INSTRUCTIONS,
             },
         )
-    elif method == "tools/list":
+        return
+    if method == "tools/list":
         respond(request_id, result={"tools": tools()})
-    elif method == "tools/call":
+        return
+    if method == "tools/call":
         params = request.get("params") or {}
-        name = str(params.get("name"))
         try:
+            name = str(params.get("name"))
             value = call_tool(name, dict(params.get("arguments") or {}))
             respond(
                 request_id,
@@ -395,23 +450,18 @@ def handle(request: dict[str, Any]) -> None:
                     "isError": True,
                 },
             )
-    elif method == "resources/list":
+        return
+    if method == "resources/list":
         try:
-            respond(
-                request_id,
-                result={"resources": list_review_resources(project_root())},
-            )
+            respond(request_id, result={"resources": list_review_resources(project_root())})
         except Exception as exc:
             respond(request_id, error=str(exc))
-    elif method == "resources/read":
+        return
+    if method == "resources/read":
         try:
             uri = str((request.get("params") or {}).get("uri", ""))
             parsed = urlparse(uri)
-            if (
-                parsed.scheme != "tide"
-                or parsed.netloc != "reviews"
-                or not parsed.path.strip("/")
-            ):
+            if parsed.scheme != "tide" or parsed.netloc != "reviews" or not parsed.path.strip("/"):
                 raise TideError(f"unknown resource: {uri}")
             review_id = parsed.path.strip("/")
             packet = get_review_packet(project_root(), review_id)
@@ -429,10 +479,11 @@ def handle(request: dict[str, Any]) -> None:
             )
         except Exception as exc:
             respond(request_id, error=str(exc))
-    elif method == "ping":
+        return
+    if method == "ping":
         respond(request_id, result={})
-    else:
-        respond(request_id, error=f"unknown method: {method}")
+        return
+    respond(request_id, error=f"unknown method: {method}")
 
 
 def serve() -> int:
