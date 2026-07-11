@@ -29,7 +29,8 @@ def test_boundary_and_validation_gate(tmp_path: Path) -> None:
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     report = check(root)
     assert not report["ready"]
-    assert "no validation recorded for the current diff" in report["blockers"]
+    assert "no current validation evidence covers the changed task files" in report["blockers"]
+    assert report["uncovered_validation_files"] == ["app.py"]
 
     result = record_validation(root, ["python", "-c", "assert True"])
     assert result["passed"]
@@ -96,6 +97,7 @@ def test_review_packet_includes_untracked_diff(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     prepare(root, "add helper", ["helper.py"])
     (root / "helper.py").write_text("def helper():\n    return 1\n", encoding="utf-8")
+    record_validation(root, ["python", "-c", "assert True"])
     packet = review_packet(root)
     assert packet["files"] == ["helper.py"]
     assert "helper.py" in packet["diff"]["text"]
@@ -120,7 +122,7 @@ def test_validation_becomes_stale_after_code_changes(tmp_path: Path) -> None:
     report = check(root)
     assert not report["ready"]
     assert report["stale_validation_count"] == 1
-    assert "no validation recorded for the current diff" in report["blockers"]
+    assert "no current validation evidence covers the changed task files" in report["blockers"]
 
 
 def test_review_becomes_stale_after_code_changes(tmp_path: Path) -> None:
