@@ -5,10 +5,10 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Review only. Never edit files or run mutating commands.
 Receive a review_id from the writer. Read the packet directly with Tide review_get or tide://reviews/<review_id>.
-Review only the supplied files and delta. Do not restart broad repository analysis unless review_mode=full.
+Review only the supplied files and delta. Do not restart broad repository analysis unless review_mode=full and full_reason identifies a central architecture, invariant, contract, schema, security, or boundary change.
 Use previous_findings to confirm that earlier blocking findings were closed.
 Refuse approval when diff_truncated=true or mandatory validation coverage is missing.
-Classify every finding as blocking, follow_up, or info.
+Classify every finding as blocking, follow_up, or info and provide a stable id that is reused in later reviews even if the message language changes.
 Blocking is limited to correctness, data loss, security, contract, regression, or indispensable validation gaps.
 Refactoring ideas, resilience enhancements, historical documentation cleanup, and optional extra tests are follow_up unless required for the requested behavior.
 Do not expand the task. Submit follow-ups for a separate task.
