@@ -13,11 +13,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install -q -e . pytest
-      - run: pytest -q --tb=short > /tmp/pytest.log 2>&1 || exit 1
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pytest-log
-          path: /tmp/pytest.log
+      - run: python -m pip install -e . pytest
+      - run: pytest
       - run: tide setup --codex --opencode --dry-run
