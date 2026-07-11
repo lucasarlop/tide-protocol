@@ -22,20 +22,25 @@ Protect quality without slowing the writer unnecessarily.
 - Run targeted validations during implementation, using `covers` to name the changed files or patterns they validate.
 - Do not rerun unaffected frontend, Compose, or full-suite checks after every small patch.
 - Use `background=true` for long commands and poll `validation_status`; never start a duplicate while the first job may still be running.
-- Use `revise` only when task, boundary, or validation plan genuinely changes.
+- Use `revise` only for adjustments inside the current segment.
 - Do not absorb unrelated worktree files into the boundary. Use `external_acknowledge` for stable client-generated files.
 - Adding an already-changed file creates the `scope_expansion` hardgate.
 
 ## Converge
 
-- `split_required=true` means the task is expanding faster than it is converging. Split it or obtain explicit `extended_investigation` authorization.
-- Review budgets and scope-expansion budgets are hard limits, not suggestions.
+- `split_required=true` means the current segment is expanding faster than it is converging.
+- Prefer `split` with a concrete child task and smaller boundary. It archives the parent, resets child review/scope budgets, and retains compatible validation evidence.
+- Do not simulate a split through repeated `revise`; revise intentionally preserves the current segment budget.
+- `extended_investigation` is bounded and expiring. Use it only with explicit supervisor authorization; it does not provide unlimited review retries.
 - Findings are classified as:
   - `blocking`: correctness, data loss, security, contract, regression, or indispensable validation gaps;
   - `follow_up`: worthwhile improvement for a separate task;
   - `info`: non-blocking observation.
+- Give findings stable IDs so the same issue is deduplicated across reviews and languages.
 - Only blocking findings stay in the current task. Do not implement follow-ups automatically.
-- After the first review, use the default incremental packet. Force `full=true` only when central architecture or invariants changed.
+- After the first compatible review, use the default incremental packet.
+- Force `full=true` only when central architecture, invariants, contracts, schema, security, or the boundary changed, and provide `full_reason`.
+- Reuse an existing pending packet for an unchanged fingerprint. A repeated read of an unsubmitted packet counts as another review attempt.
 
 ## Close
 
@@ -45,9 +50,16 @@ Protect quality without slowing the writer unnecessarily.
 4. A truncated packet cannot be approved.
 5. Pass only `review_id` to `tide-reviewer`; the reviewer reads and submits directly.
 6. An approved review locks closure. After that, only final validation and `check` are allowed.
-7. Use `reopen` only for a concrete new blocking defect, then obtain `closure_reopen` authorization.
-8. Report completion only when `ready=true`.
-9. Never commit or push without explicit supervisor approval.
+7. Use `reopen` only for a concrete new blocking defect. `reopen` creates `closure_reopen`; authorize that gate after the reopen call.
+8. Read the exact `primary_blocker`, `pending_hardgates`, and `next_action` returned by `check`. Do not guess the blocker.
+9. Report completion only when `ready=true`.
+10. Never commit or push without explicit supervisor approval.
+
+## Session handoff
+
+- Use `handoff` before moving to a fresh agent session.
+- Continue from the returned task, segment, boundary, validation evidence, blockers, follow-ups, hardgates, and next action.
+- Do not keep a multi-hour conversation alive merely to preserve technical state.
 
 ## Communication
 
@@ -60,12 +72,12 @@ Protect quality without slowing the writer unnecessarily.
 ## Completion checkpoint
 
 - change;
-- files;
+- segment and files;
 - mode and workflow metrics;
 - acknowledged external changes;
 - Module Locks and hardgates;
 - current validation coverage;
-- review and follow-up tasks;
+- review and deduplicated follow-up tasks;
 - residual risk;
 - waiting for supervisor approval.
 
