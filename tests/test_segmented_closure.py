@@ -109,7 +109,7 @@ def test_full_review_after_baseline_requires_central_reason(tmp_path: Path) -> N
     record_validation(
         root,
         [sys.executable, "-c", "assert True"],
-        covers=["app.py"],
+        covers=["app.py", "helper.py"],
     )
 
     with pytest.raises(TideError, match="requires full_reason"):
@@ -163,7 +163,11 @@ def test_extended_investigation_grant_limits_new_review_packets(tmp_path: Path) 
         findings=[{"id": "block-one", "severity": "blocking", "message": "block one"}],
     )
     (root / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
-    record_validation(root, [sys.executable, "-c", "assert True"], covers=["app.py"])
+    record_validation(
+        root,
+        [sys.executable, "-c", "assert True"],
+        covers=["app.py", "helper.py"],
+    )
     second = create_review_packet(root)
     packet = get_review_packet(root, second["review_id"])
     submit_review(
@@ -174,7 +178,11 @@ def test_extended_investigation_grant_limits_new_review_packets(tmp_path: Path) 
         findings=[{"id": "block-two", "severity": "blocking", "message": "block two"}],
     )
     (root / "app.py").write_text("VALUE = 4\n", encoding="utf-8")
-    record_validation(root, [sys.executable, "-c", "assert True"], covers=["app.py"])
+    record_validation(
+        root,
+        [sys.executable, "-c", "assert True"],
+        covers=["app.py", "helper.py"],
+    )
 
     with pytest.raises(TideError, match="allowance expired"):
         create_review_packet(root)
