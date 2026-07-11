@@ -54,7 +54,7 @@ def test_task_validation_plan_blocks_until_exact_command_passes(tmp_path: Path) 
     blocked = check(root)
     assert not blocked["ready"]
     assert blocked["missing_validations"] == [required]
-    assert "required validations are missing for the current diff" in blocked["blockers"]
+    assert "required validations are missing for their covered files" in blocked["blockers"]
 
     record_validation(root, [sys.executable, "-c", "assert True"])
     assert check(root)["ready"]
@@ -145,6 +145,7 @@ def test_simplicity_focus_ignores_unchanged_preexisting_long_function(tmp_path: 
     root = make_repo(tmp_path, body)
     prepare(root, "small edit", ["app.py"])
     (root / "app.py").write_text(body.replace("    pass\n", "    x = 1\n", 1), encoding="utf-8")
+    record_validation(root, [sys.executable, "-c", "assert True"])
     focus = review_packet(root)["review_focus"]
     assert not any("long_function" in item for item in focus)
 
@@ -155,5 +156,6 @@ def test_simplicity_focus_reports_large_growth_caused_by_diff(tmp_path: Path) ->
     root = make_repo(tmp_path, before)
     prepare(root, "grow function", ["app.py"])
     (root / "app.py").write_text(after, encoding="utf-8")
+    record_validation(root, [sys.executable, "-c", "assert True"])
     focus = review_packet(root)["review_focus"]
     assert any("growing" in item and "grew by 50 lines" in item for item in focus)
