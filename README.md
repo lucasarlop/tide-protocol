@@ -1,308 +1,279 @@
-# Tide Protocol
+# Tide Protocol — experimental core
 
-Tide Protocol é um runtime de desenvolvimento assistido por IA para OpenCode, baseado em **Waves identificáveis**, **fronteiras explícitas**, **código durável**, **validação proporcional ao risco**, **hardgates**, **SMART** e **supervisão humana**.
+Tide is a minimal quality protocol for AI coding agents.
 
-O software é o mar. As Waves são movimentos controlados sobre ele: podem investigar, implementar, validar, operar, revisar, estacionar, ser aprovadas, rejeitadas ou agrupadas em commits.
+It controls implementation quality before work is accepted by the supervisor.
 
-## Status
-
-Versão atual: **0.5.0**.
-
-Esta versão entrega o MVP operacional do Tide: CLI Python com Waves locais, approve/reject supervisionado, catálogo de comandos de projeto, runtime com timeout, agentes/comandos/skills globais para OpenCode, CI, instalação isolada, launcher `tide opencode`, `tide doctor`, guias de instalação/operação, Código Vivo, MCP seguro de contexto, hardgates, SMART, commit safety e política dinâmica de modelo/effort.
-
-## Ideia central
-
-O Tide não é Spec-First nem Pipeline-First. Ele é **Boundary-First**:
-
-1. o agente entende a intenção;
-2. define a menor Wave segura;
-3. declara fronteiras, SMART, hardgates e validação;
-4. age com liberdade dentro da fronteira;
-5. para se precisar cruzar a fronteira;
-6. entrega evidência ao supervisor;
-7. o supervisor decide se aprova, rejeita, acumula ou continua.
-
-## Vocabulário
-
-- **Mar**: o software atual. A fonte da verdade é o código presente, não histórico de decisões.
-- **Wave**: unidade identificável de movimento sobre o software. Exemplo: `TIDE-0001`.
-- **Fronteira**: o que a Wave pode tocar, executar ou decidir.
-- **Hardgate**: condição que obriga o agente a parar e pedir checkpoint antes de agir.
-- **SMART**: critério mínimo para uma Wave ser específica, mensurável, alcançável, relevante e time-boxed.
-- **Evidência**: prova proporcional ao risco: teste, comando, diff, log, checklist ou validação manual.
-- **Checkpoint**: ponto em que o supervisor decide o próximo movimento.
-- **Código durável**: código que falha bem, orienta bem, opera bem e deixa claro onde ajustar.
-
-## Instalação recomendada
-
-O padrão seguro é instalação isolada, para não afetar projetos que já usam `opencode-pack` ou outra configuração global do OpenCode.
-
-```bash
-git clone https://github.com/lucasarlop/tide-protocol.git /tmp/tide-protocol
-cd /tmp/tide-protocol
-bash install.sh --force
+```text
+live code
+→ smallest safe boundary
+→ explicit validation plan
+→ Module Locks and hardgates
+→ one writer
+→ current validation evidence
+→ optional independent review
+→ deterministic quality gate
+→ supervisor
 ```
 
-Isso instala:
-
-```txt
-~/.config/opencode-tide/   agentes, comandos, skills, regras e MCP
-~/.local/bin/tide          launcher Tide
-~/.local/bin/tide-cli      CLI operacional real
-~/.local/bin/tide.config   config usada pelo launcher
-```
-
-Abra um projeto com:
+## Install
 
 ```bash
-cd qualquer-projeto
-tide opencode
-```
+uv tool install --python 3.12 \
+  'git+https://github.com/lucasarlop/tide-protocol.git@experiment/tide-core'
 
-`tide opencode` roda `tide init` por padrão e abre o OpenCode com a config isolada do Tide.
-
-Diagnóstico:
-
-```bash
+tide setup --codex --opencode
 tide doctor
 ```
 
-Instalação global exige intenção explícita:
+Update later with:
 
 ```bash
-bash install.sh --global --force
+tide update
 ```
 
-## Estado local de Waves
+## State
 
-`tide init` cria estado operacional local em:
+Durable state:
 
-```txt
-.opencode/waves/
-  registry.json
-  TIDE-0001/
-    wave.md
-    wave.json
-    wave.diff
-    files.json
-    validations.json
-```
+- global Tide Skill;
+- quality and hardgate rules;
+- engine adapters;
+- short Module Locks under `.tide/locks/`.
 
-Esse diretório é ignorado localmente via `.git/info/exclude`, não via `.gitignore`. Assim o Tide não polui o repositório do projeto.
+Temporary state lives under `<git-dir>/tide/`:
 
-## Ciclo de Wave
+- current task, boundary, and required validation plan;
+- acknowledged external worktree changes;
+- validation evidence, background jobs, and full logs;
+- review packets;
+- reviewer verdict and receipt.
 
-```txt
-running     → Wave existe e está em andamento
-parked      → Wave parou, mas ainda não foi aprovada nem rejeitada
-validated   → Wave tem evidência, mas ainda aguarda decisão do supervisor
-committed   → Wave foi aprovada em commit
-rejected    → Wave foi revertida
-failed      → Wave falhou ou ficou insegura/inconclusiva
-```
+Temporary evidence is not versioned. Validation and review are tied to the exact diff fingerprint.
 
-Importante:
-
-```txt
-parked/validated ≠ committed
-```
-
-Depois de `validated`, o Tide evita rebaixar a Wave para `parked` sem confirmação explícita.
-
-## CLI essencial
-
-Criar uma Wave:
+## Normal flow
 
 ```bash
-tide wave create --title "Corrigir validação de DATABASE_URL" --type code --risk medium --max-files 3
+tide prepare 'Fix EPUB footnote backlinks' \
+  --file 'src/epub/**' \
+  --file 'tests/epub/**' \
+  --require-validation 'pytest tests/epub -x'
+
+# Only after explicit supervisor approval:
+tide authorize --all
+
+tide validate -- pytest tests/epub -x
+
+# Only when review_required=true:
+tide review-packet
+# pass only the returned review_id to tide-reviewer;
+# the reviewer reads the packet and submits its own verdict
+
+tide check
 ```
 
-Estacionar a Wave com snapshot do diff atual:
+The agent normally calls these operations through MCP.
+
+## Change scope or validation plan without restarting
+
+Do not call a new `prepare` when implementation reveals another file, another mandatory check, or the review requests a correction.
 
 ```bash
-tide wave park TIDE-0001 --note "Implementação pronta para validação"
+tide boundary add .gitlab-ci.yml
+tide boundary remove old-file.py
+
+tide revise \
+  --task 'Correct review findings' \
+  --add-file .gitlab-ci.yml \
+  --add-required-validation './scripts/run_tests.sh'
 ```
 
-Finalizar uma Wave validada em uma operação:
+`revise` preserves the original working-tree baseline, recalculates policy and Module Locks, and invalidates previous validation and review evidence. It does not create a false `dirty_boundary` for changes produced by the current task.
+
+Adding a file that is already changed when `revise` expands the boundary creates a `scope_expansion` hardgate. The agent cannot silently absorb an existing worktree change into the task; explicit supervisor authorization is required.
+
+## External worktree changes
+
+An unrelated file created or modified during the session must not be added to the task boundary merely to make `outside_boundary` disappear.
+
+Use the MCP tool `external_acknowledge` with the exact file and a concrete reason:
+
+```json
+{
+  "files": ["session-export.md"],
+  "reason": "session export created by the client"
+}
+```
+
+The file remains outside the task boundary, diff, validation fingerprint, and review packet. Tide stores its current fingerprint and ignores it only while it remains unchanged. A later modification makes it an outside-boundary violation again.
+
+## Required validations
+
+Task-level required validations complement Module Lock validations. `tide check` is ready only when every exact required command has passed against the current diff fingerprint.
+
+A passing targeted test no longer substitutes for a declared full suite:
+
+```text
+required_validations:
+- ./scripts/run_tests.sh
+- python scripts/validate_epub.py output.epub
+
+missing_validations:
+- ./scripts/run_tests.sh
+```
+
+## Long validations
+
+Validation returns compact evidence by default. Commands likely to outlive the MCP request can run in the background:
 
 ```bash
-tide wave finish TIDE-0001 \
-  --summary "teste escopado passou" \
-  --command "tide run --timeout-sec 120 --silence-sec 60 -- python3 -m unittest tests.test_config" \
-  --result passed
+tide validate --background --timeout 1800 -- ./scripts/run_tests.sh
+# returns validation_id
+
+tide validation-status <validation-id>
 ```
 
-Inspecionar:
+The worker stores its result under `<git-dir>/tide/validation-jobs/`. When collected, the evidence remains tied to the diff fingerprint captured when the job started. A code change while the command runs makes that evidence stale rather than current.
+
+Full stdout and stderr stay under `<git-dir>/tide/logs/` and are loaded only when needed:
 
 ```bash
-tide wave list
-tide wave show TIDE-0001
-tide wave status TIDE-0001
-tide wave diff TIDE-0001 --stat
-tide wave files TIDE-0001
+tide validation-log <log-id>
+tide validate --verbose -- pytest -q
 ```
 
-Aprovar ou rejeitar:
+Compact evidence limits both the number of lines and total bytes. Very long coverage lines are clipped; the complete output remains available through `validation_log`.
+
+## Independent review
+
+`tide review-packet` stores the detailed packet and returns only:
+
+- `review_id`;
+- resource URI;
+- files and diff size;
+- current and missing validation counts;
+- review focus;
+- whether the diff was truncated.
+
+The main writer passes only `review_id` to `tide-reviewer`. The reviewer reads the packet directly with Tide `review_get` or the MCP resource:
+
+```text
+tide://reviews/<review-id>
+```
+
+The detailed packet contains a one-time submission token. The reviewer submits the verdict directly through `review_submit`; Tide stores a receipt and rejects a second submission for the same packet. This removes the normal writer relay from the review flow.
+
+A packet with `diff_truncated=true` cannot be approved. The task boundary must be reduced or unrelated external changes must be acknowledged before a new packet is created.
+
+## Simplicity signals
+
+Tide reviews simplicity changes caused by the current diff instead of listing every large legacy function in a touched file. It signals:
+
+- a new source file above 400 lines;
+- a new Python function above 100 lines;
+- an existing Python function above 100 lines that grows by more than 40 lines.
+
+## Context and code-review-graph
+
+Tide treats current code, Git state, current diff, and real validations as truth.
+
+When `code-review-graph` is available, Tide recommends a sequence based on context quality:
+
+- build the graph if the index is missing;
+- use architecture overview and semantic search for broad or weak results;
+- use minimal context and impact analysis for focused tasks;
+- ignore irrelevant graph results and confirm all findings against current code.
+
+Adapters instruct agents to use graph context before implementation, not only before final review.
+
+## Hardgates
+
+Hardgates stop mutation until explicit supervisor authorization for sensitive work such as:
+
+- production and deploy;
+- database and migrations;
+- auth and secrets;
+- real data or reprocessing;
+- infrastructure and CI/CD;
+- public API contracts;
+- dependencies and package manifests;
+- protected Module Lock contracts;
+- pre-existing changes inside the task boundary;
+- late expansion of the task boundary over already-changed files.
+
+Dependency detection includes `pyproject.toml`, `setup.py`, `setup.cfg`, requirements files, lock files, Node, Go, Rust, Ruby, Java/Gradle, and Composer manifests.
+
+## Module Locks
+
+A Module Lock protects a mature production module. It records only what is expensive or unsafe to rediscover:
+
+- stable responsibility;
+- invariants;
+- external contracts;
+- mandatory validations;
+- sensitive changes.
 
 ```bash
-tide approve TIDE-0001
-tide approve TIDE-0001 TIDE-0002
-tide reject TIDE-0001
+tide lock draft src/epub --name epub-generation
+tide lock validate .tide/locks/epub-generation.md
 ```
 
-## Commit safety
+Do not document every class, file, or function.
 
-`approve` é restritivo por padrão. Ele exige:
+## CLI output
 
-- índice Git limpo antes do approve;
-- Wave `validated`;
-- arquivos registrados;
-- snapshot salvo;
-- diff atual coerente com o snapshot salvo;
-- ausência de overlap com Waves ativas, salvo decisão explícita;
-- commit sem push.
-
-Flags de bypass existem somente para hardgates supervisionados:
+Human-readable output is the default. Use `--json` for scripts:
 
 ```bash
-tide approve TIDE-0001 --allow-unvalidated
-tide approve TIDE-0001 --allow-snapshot-drift
-tide approve TIDE-0001 --allow-overlap
+tide status
+tide status --json
 ```
 
-## Catálogo de comandos do projeto
+## MCP surface
 
-O Tide descobre comandos de:
+Tide exposes:
 
-- `package.json`;
-- `Makefile`;
-- scripts em `bin/`, `scripts/` e `tools/`;
-- catálogos opcionais em `.tide/commands.json`, `.tide.commands.json`, `tide.commands.json` ou `.opencode/tide/commands.json`.
+- `prepare` and `revise` with required validation plans;
+- `external_acknowledge` for stable unrelated worktree changes;
+- `authorize`;
+- `context`;
+- `validate`, `validation_status`, and `validation_log`;
+- `review_packet`, `review_get`, and `review_submit`;
+- `check` and `status`;
+- `lock_list` and `lock_template`.
 
-Listar comandos:
+Every tool schema rejects unknown arguments. MCP text content is a short human summary while full data remains in `structuredContent`, avoiding duplicate large JSON payloads in clients such as Codex.
+
+Review packets are also MCP resources under `tide://reviews/`.
+
+## Communication
+
+Adapters require short, direct communication. Agents should not announce routine steps or maintain visible todos unless requested. They should interrupt only for authorization, a real blocker, or the final checkpoint.
+
+## Uninstall
 
 ```bash
-tide project commands
-tide project commands --json
+tide uninstall --dry-run
+tide uninstall --yes
 ```
 
-Executar comando catalogado:
+Tide removes only its managed blocks, reviewer files, MCP registration, shared Skill, and package. It preserves unrelated Codex/OpenCode settings and independent `code-review-graph` configuration.
+
+## Development
 
 ```bash
-tide project run regenerate_book --arg book_id=123 --dry-run
-tide project run regenerate_book --arg book_id=123 --yes
+python -m venv .venv
+. .venv/bin/activate
+pip install -e . pytest
+pytest
 ```
 
-Comandos com `safety` sensível ou `requires_ok: true` exigem `--yes`, que representa OK explícito do supervisor.
+Deliberate omissions:
 
-Execução direta com timeout:
-
-```bash
-tide run --timeout-sec 120 --silence-sec 60 -- pytest tests/config -x
-```
-
-Códigos especiais:
-
-```txt
-124 = timeout hard
-125 = timeout por silêncio
-```
-
-## Hardgates e SMART
-
-Hardgates comuns:
-
-- produção;
-- deploy;
-- CI/CD;
-- SSH;
-- banco de dados;
-- migrations;
-- reprocessamento;
-- scripts destrutivos;
-- auth/permissões/tokens/secrets;
-- API pública;
-- nova dependência;
-- alteração ampla em muitos arquivos;
-- validação inconclusiva.
-
-Wave relevante deve ser SMART antes de executar: específica, mensurável, alcançável, relevante e time-boxed.
-
-## Modelo e modo fast
-
-O modo padrão é **balanced-quality dinâmico**. O Tide escolhe esforço por risco:
-
-```txt
-medium → tarefa clara, pequena e baixo risco
-high   → código relevante, lógica de domínio, durabilidade ou testes não triviais
-xhigh  → segurança, dados, infra crítica, produção, permissões ou código de alto impacto
-```
-
-O supervisor pode pedir `modo fast` quando quiser priorizar velocidade. Fast mode reduz investigação ampla e reviewers desnecessários, mas preserva hardgates.
-
-## Tide MCP
-
-O Tide MCP começa como camada segura de contexto e planejamento. Ele não substitui os agentes do OpenCode e não transforma o MCP em executor cego de comandos.
-
-Contrato inicial:
-
-```txt
-tide_project_profile
-tide_wave_list
-tide_wave_show
-tide_commands_list
-tide_command_plan
-tide_context_status
-```
-
-A execução operacional permanece no CLI `tide`, nos comandos slash e nos agentes, respeitando supervisor OK, `safety`, `requires_ok`, timeout e validação.
-
-## Código Vivo
-
-`code-review-graph` é integração recomendada, não dependência obrigatória. O Tide usa contexto indexado quando disponível, mas a fonte da verdade continua sendo:
-
-```txt
-código atual + git status + diff + validações reais
-```
-
-Se não houver índice, o agente deve usar leitura direta do código atual.
-
-## Agentes
-
-Agente principal:
-
-- `tide` — orquestrador; decide intenção, risco, fronteira, Wave, hardgates, effort e subagentes.
-
-Subagentes:
-
-- `tide-guide` — dúvidas sobre o projeto, read-only.
-- `tide-runner` — implementa mudanças dentro da fronteira.
-- `tide-operator` — comandos, scripts, banco, SSH e rotinas operacionais.
-- `tide-verifier` — validações/testes com runtime policy.
-- `tide-steward` — estado de Waves, approve/reject e commits.
-- `tide-reviewer-durability` — código durável.
-- `tide-reviewer-simplicity` — simplicidade e overengineering.
-- `tide-reviewer-tests` — qualidade das verificações.
-- `tide-reviewer-security` — auth, permissões, tokens, secrets, SSH e produção.
-- `tide-reviewer-data` — banco, migrations, queries, integridade e reprocessamentos.
-- `tide-reviewer-infra` — Docker, CI/CD, deploy, env vars, filas, workers, cache e runtime.
-
-## Princípios
-
-O Tide reaproveita os princípios do `opencode-pack`:
-
-- comunicação direta;
-- simplicidade primeiro;
-- não inventar escopo;
-- menos código;
-- decisões explícitas;
-- honestidade técnica;
-- evitar overengineering.
-
-E acrescenta:
-
-- código deve durar;
-- comandos longos precisam de timeout/critério de parada;
-- hardgates interrompem execução;
-- o supervisor decide approve/reject/commit;
-- commit nunca é automático.
+- versioned Waves;
+- persistent execution history;
+- Taiga integration;
+- report agents;
+- fleets of specialized reviewers;
+- automatic commits;
+- a second implementation of code-review-graph.

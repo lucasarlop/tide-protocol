@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tide-protocol"
+version = "0.6.0a7"
+description = "Minimal quality protocol for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Lucas Lopes"}]
+dependencies = []
+
+[project.scripts]
+tide = "tide.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tide"]
+
+[tool.hatch.build]
+include = [
+  "src/tide/**/*.py",
+  "src/tide/assets/**/*",
+]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
