@@ -54,7 +54,9 @@ def test_revise_preserves_baseline_and_requires_scope_expansion_authorization(tm
 
     report = authorize(root, gates=["scope_expansion"])
     assert report["mutation_allowed"]
-    assert check(root)["current_validation_count"] == 0
+    checked = check(root)
+    assert checked["current_validation_count"] == 1
+    assert checked["uncovered_validation_files"] == ["helper.py"]
 
 
 def test_revise_adding_original_dirty_file_requires_authorization(tmp_path: Path) -> None:
@@ -135,4 +137,4 @@ def test_large_new_file_triggers_simplicity_review(tmp_path: Path) -> None:
 
 def test_mcp_surface_has_revise_and_lazy_artifact_tools() -> None:
     names = {item["name"] for item in tools()}
-    assert {"revise", "validation_log", "review_packet", "review_get"} <= names
+    assert {"revise", "reopen", "validation_log", "review_packet", "review_get"} <= names
