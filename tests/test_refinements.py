@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tide.core import (
+    authorize,
     check,
     create_review_packet,
     get_review_packet,
@@ -36,7 +37,7 @@ def make_repo(tmp_path: Path) -> Path:
     return root
 
 
-def test_revise_preserves_original_baseline_and_avoids_false_dirty_gate(tmp_path: Path) -> None:
+def test_revise_preserves_baseline_and_requires_scope_expansion_authorization(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     prepare(root, "change app", ["app.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -48,8 +49,14 @@ def test_revise_preserves_original_baseline_and_avoids_false_dirty_gate(tmp_path
     assert report["revision"] == 1
     assert report["boundary"] == ["app.py", "helper.py"]
     assert "dirty_boundary" not in report["pending_hardgates"]
+    assert "scope_expansion" in report["pending_hardgates"]
+    assert not report["mutation_allowed"]
+
+    report = authorize(root, gates=["scope_expansion"])
     assert report["mutation_allowed"]
-    assert check(root)["current_validation_count"] == 0
+    checked = check(root)
+    assert checked["current_validation_count"] == 1
+    assert checked["uncovered_validation_files"] == ["helper.py"]
 
 
 def test_revise_adding_original_dirty_file_requires_authorization(tmp_path: Path) -> None:
@@ -60,6 +67,7 @@ def test_revise_adding_original_dirty_file_requires_authorization(tmp_path: Path
     report = revise(root, add_files=["notes.txt"])
 
     assert "dirty_boundary" in report["pending_hardgates"]
+    assert "scope_expansion" in report["pending_hardgates"]
     assert not report["mutation_allowed"]
 
 
@@ -129,4 +137,4 @@ def test_large_new_file_triggers_simplicity_review(tmp_path: Path) -> None:
 
 def test_mcp_surface_has_revise_and_lazy_artifact_tools() -> None:
     names = {item["name"] for item in tools()}
-    assert {"revise", "validation_log", "review_packet", "review_get"} <= names
+    assert {"revise", "reopen", "validation_log", "review_packet", "review_get"} <= names

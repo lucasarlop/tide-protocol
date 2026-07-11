@@ -16,7 +16,9 @@ from .core import (
     record_review,
     record_validation,
     revise,
+    start_validation,
     validation_log,
+    validation_status,
 )
 from .lifecycle import detect_adapters, uninstall_tool, update_tool
 from .locks import load_locks, matching_locks, parse_lock, render_draft
@@ -60,7 +62,16 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_prepare(args: argparse.Namespace) -> None:
-    out(args, prepare(project_root(), args.task, args.file or []), title="Tide preparado")
+    out(
+        args,
+        prepare(
+            project_root(),
+            args.task,
+            args.file or [],
+            required_validations=args.require_validation or [],
+        ),
+        title="Tide preparado",
+    )
 
 
 def cmd_revise(args: argparse.Namespace) -> None:
@@ -71,6 +82,8 @@ def cmd_revise(args: argparse.Namespace) -> None:
             task=args.task,
             add_files=args.add_file or [],
             remove_files=args.remove_file or [],
+            add_required_validations=args.add_required_validation or [],
+            remove_required_validations=args.remove_required_validation or [],
         ),
         title="Tide revisado",
     )
@@ -102,13 +115,25 @@ def cmd_check(args: argparse.Namespace) -> None:
         raise SystemExit(2)
 
 
-def cmd_validate(args: argparse.Namespace) -> None:
+def _validation_command(args: argparse.Namespace) -> list[str]:
     command = list(args.command)
     if command and command[0] == "--":
         command = command[1:]
     if not command:
         raise TideError("provide a command after --")
+    return command
+
+
+def cmd_validate(args: argparse.Namespace) -> None:
+    command = _validation_command(args)
     root = project_root()
+    if args.background:
+        out(
+            args,
+            start_validation(root, command, args.timeout),
+            title="Validação iniciada",
+        )
+        return
     result = record_validation(root, command, args.timeout)
     value: object = result
     if args.verbose:
@@ -116,6 +141,13 @@ def cmd_validate(args: argparse.Namespace) -> None:
     out(args, value, title="Validação")
     if not result["passed"]:
         raise SystemExit(result["exit_code"] or 1)
+
+
+def cmd_validation_status(args: argparse.Namespace) -> None:
+    result = validation_status(project_root(), args.validation_id)
+    out(args, result, title="Estado da validação")
+    if result.get("status") == "completed" and result.get("passed") is False:
+        raise SystemExit(int(result.get("exit_code") or 1))
 
 
 def cmd_validation_log(args: argparse.Namespace) -> None:
@@ -143,7 +175,7 @@ def cmd_review(args: argparse.Namespace) -> None:
             findings=args.finding or [],
             review_id=args.review_id,
         ),
-        title="Review registrada",
+        title="Review registrada manualmente",
     )
 
 
@@ -283,12 +315,19 @@ def build_parser() -> argparse.ArgumentParser:
     prepare_parser = sub.add_parser("prepare")
     prepare_parser.add_argument("task")
     prepare_parser.add_argument("--file", action="append")
+    prepare_parser.add_argument(
+        "--require-validation",
+        action="append",
+        help="exact command that must pass for the final diff",
+    )
     prepare_parser.set_defaults(func=cmd_prepare)
 
     revise_parser = sub.add_parser("revise")
     revise_parser.add_argument("--task")
     revise_parser.add_argument("--add-file", action="append")
     revise_parser.add_argument("--remove-file", action="append")
+    revise_parser.add_argument("--add-required-validation", action="append")
+    revise_parser.add_argument("--remove-required-validation", action="append")
     revise_parser.set_defaults(func=cmd_revise)
 
     boundary = sub.add_parser("boundary")
@@ -313,8 +352,12 @@ def build_parser() -> argparse.ArgumentParser:
     validate = sub.add_parser("validate")
     validate.add_argument("--timeout", type=int, default=300)
     validate.add_argument("--verbose", action="store_true")
+    validate.add_argument("--background", action="store_true")
     validate.add_argument("command", nargs=argparse.REMAINDER)
     validate.set_defaults(func=cmd_validate)
+    validation_status_parser = sub.add_parser("validation-status")
+    validation_status_parser.add_argument("validation_id")
+    validation_status_parser.set_defaults(func=cmd_validation_status)
     validation_log_parser = sub.add_parser("validation-log")
     validation_log_parser.add_argument("log_id")
     validation_log_parser.set_defaults(func=cmd_validation_log)
@@ -324,7 +367,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_show = sub.add_parser("review-show")
     review_show.add_argument("review_id")
     review_show.set_defaults(func=cmd_review_show)
-    review = sub.add_parser("review")
+    review = sub.add_parser("review", help="manually record a review; MCP reviewers use review_submit")
     verdict = review.add_mutually_exclusive_group(required=True)
     verdict.add_argument("--approved", action="store_true")
     verdict.add_argument("--blocked", dest="approved", action="store_false")
