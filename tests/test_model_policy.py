@@ -20,7 +20,7 @@ def git(root: Path, *args: str) -> None:
 
 def make_repo(tmp_path: Path, runtime: dict | None = None) -> Path:
     root = tmp_path / "repo"
-    root.mkdir()
+    root.mkdir(parents=True)
     git(root, "init")
     git(root, "config", "user.email", "test@example.com")
     git(root, "config", "user.name", "Tide Test")
