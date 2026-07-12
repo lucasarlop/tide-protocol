@@ -85,9 +85,15 @@ def test_status_and_review_error_name_exact_missing_validation(tmp_path: Path) -
     required = "python -c 'assert True'"
     prepare(root, "change app", ["app.py"], [required])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    record_validation(
+        root,
+        ["python", "-c", "assert 1 == 1"],
+        covers=["app.py"],
+    )
 
     report = preparation_report(root)
     assert report["missing_required_validations"] == [required]
+    assert report["uncovered_validation_files"] == []
     assert report["next_action"] == f"run mandatory validation: {required}"
     assert report["resume"]["next_action"] == f"run mandatory validation: {required}"
 
