@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from tide.autonomy import enrich
 from tide.core import authorize, check, prepare, resume
 
 
@@ -31,7 +32,7 @@ def make_repo(tmp_path: Path) -> Path:
 def test_pending_hardgate_returns_structured_authorization_request(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
 
-    report = prepare(root, "apply database migration", ["app.py"])
+    report = enrich(root, prepare(root, "apply database migration", ["app.py"]))
 
     assert report["user_action_required"] is True
     assert report["agent_should_continue"] is False
@@ -43,11 +44,11 @@ def test_pending_hardgate_returns_structured_authorization_request(tmp_path: Pat
     }
     assert report["next_action"].startswith("call authorize")
 
-    checkpoint = resume(root)
+    checkpoint = enrich(root, resume(root))
     assert checkpoint["user_action_required"] is True
     assert checkpoint["authorization_request"]["arguments"]["gates"] == ["database"]
 
-    authorized = authorize(root, gates=["database"])
+    authorized = enrich(root, authorize(root, gates=["database"]))
     assert authorized["user_action_required"] is False
     assert authorized["authorization_request"] is None
 
@@ -57,7 +58,7 @@ def test_validation_and_review_work_do_not_require_user_action(tmp_path: Path) -
     prepare(root, "change local helper", ["app.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
 
-    report = check(root)
+    report = enrich(root, check(root))
 
     assert report["ready"] is False
     assert report["user_action_required"] is False
