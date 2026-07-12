@@ -25,14 +25,14 @@ def test_opencode_jsonc_is_preserved_and_extended(tmp_path: Path) -> None:
     assert result["model"] == "openai/gpt-test"
     assert result["permission"]["bash"] == "ask"
     assert result["permission"]["tide_authorize"] == "ask"
-    assert result["permission"]["tide_validate"] == "ask"
+    assert result["permission"]["tide_validate"] == "allow"
     assert str(bootstrap) in result["instructions"]
     assert result["mcp"]["tide"]["command"] == ["tide", "mcp", "serve"]
     assert result["mcp"]["code-review-graph"]["command"] == ["/usr/bin/code-review-graph", "serve"]
     assert config.with_suffix(".json.tide-backup").exists()
 
 
-def test_codex_config_has_sensitive_tool_approval(tmp_path: Path) -> None:
+def test_codex_config_prompts_only_for_authorization(tmp_path: Path) -> None:
     config = tmp_path / "config.toml"
     config.write_text('[model_providers.local]\nname = "local"\n', encoding="utf-8")
     _patch_codex_config(config, graph_command="/usr/bin/code-review-graph")
@@ -40,7 +40,7 @@ def test_codex_config_has_sensitive_tool_approval(tmp_path: Path) -> None:
     assert "[model_providers.local]" in text
     assert "[mcp_servers.tide.tools.authorize]" in text
     assert 'approval_mode = "prompt"' in text
-    assert "[mcp_servers.tide.tools.validate]" in text
+    assert "[mcp_servers.tide.tools.validate]" not in text
     assert "[mcp_servers.code-review-graph]" in text
 
 
