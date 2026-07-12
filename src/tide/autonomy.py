@@ -1,24 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Callable
+from typing import Any
 
 from .project import load_runtime
-
-_ORIGINALS: dict[str, Callable[..., Any]] = {}
-
-
-def install(core: ModuleType) -> None:
-    if getattr(core, "_autonomy_boundary_installed", False):
-        return
-    for name in ("preparation_report", "check", "resume", "handoff"):
-        _ORIGINALS[name] = getattr(core, name)
-    core.preparation_report = preparation_report
-    core.check = check
-    core.resume = resume
-    core.handoff = handoff
-    core._autonomy_boundary_installed = True
 
 
 def _pending_hardgates(root: Path, value: dict[str, Any]) -> list[str]:
@@ -33,7 +18,7 @@ def _pending_hardgates(root: Path, value: dict[str, Any]) -> list[str]:
     return sorted(hardgates - authorized)
 
 
-def _enrich(root: Path, value: Any) -> Any:
+def enrich(root: Path, value: Any) -> Any:
     if not isinstance(value, dict):
         return value
     pending = _pending_hardgates(root, value)
@@ -72,19 +57,3 @@ def _enrich(root: Path, value: Any) -> Any:
             nested["next_action"] = result["next_action"]
         result["resume"] = nested
     return result
-
-
-def preparation_report(root: Path, runtime: dict[str, Any] | None = None) -> dict[str, Any]:
-    return _enrich(root, _ORIGINALS["preparation_report"](root, runtime))
-
-
-def check(root: Path) -> dict[str, Any]:
-    return _enrich(root, _ORIGINALS["check"](root))
-
-
-def resume(root: Path) -> dict[str, Any]:
-    return _enrich(root, _ORIGINALS["resume"](root))
-
-
-def handoff(root: Path) -> dict[str, Any]:
-    return _enrich(root, _ORIGINALS["handoff"](root))
