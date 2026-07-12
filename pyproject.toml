@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "tide-protocol"
-version = "1.0.0"
-description = "Quality protocol for autonomous AI coding agents"
+version = "1.1.0"
+description = "Quality and model-allocation protocol for autonomous AI coding agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}

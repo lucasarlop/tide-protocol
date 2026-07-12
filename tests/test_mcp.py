@@ -1,7 +1,7 @@
 from tide.mcp import INSTRUCTIONS, _tool_summary, tools
 
 
-def test_mcp_exposes_tide_1_quality_surface() -> None:
+def test_mcp_exposes_tide_1_1_quality_surface() -> None:
     surface = tools()
     names = {tool["name"] for tool in surface}
     assert names == {
@@ -11,6 +11,7 @@ def test_mcp_exposes_tide_1_quality_surface() -> None:
         "reopen",
         "external_acknowledge",
         "authorize",
+        "model_policy",
         "context",
         "check",
         "validate",
@@ -32,7 +33,23 @@ def test_mcp_exposes_tide_1_quality_surface() -> None:
     assert "validation_wait" in INSTRUCTIONS
     assert "approved fingerprint is immutable" in INSTRUCTIONS
     assert "Caveman-lite" in INSTRUCTIONS
-    assert "resume" in INSTRUCTIONS
+    assert "model_policy" in INSTRUCTIONS
+    assert "xhigh" in INSTRUCTIONS
+
+
+def test_mcp_model_policy_schema_exposes_only_supported_controls() -> None:
+    policy = next(tool for tool in tools() if tool["name"] == "model_policy")
+    properties = policy["inputSchema"]["properties"]
+
+    assert properties["strategy"]["enum"] == [
+        "economy",
+        "balanced",
+        "quality",
+        "manual",
+    ]
+    assert properties["review_mode"]["enum"] == ["incremental", "full"]
+    assert "failed_attempts" in properties
+    assert "root_cause_known" in properties
 
 
 def test_mcp_validate_schema_exposes_coverage_phase_and_wait() -> None:
@@ -72,6 +89,41 @@ def test_mcp_text_summary_does_not_duplicate_structured_payload() -> None:
     assert len(summary) < 200
     assert "stdout_tail" not in summary
     assert "validation-123" in summary
+
+
+def test_model_policy_summary_is_compact_and_actionable() -> None:
+    summary = _tool_summary(
+        "model_policy",
+        {
+            "phase": "implementation",
+            "reviewer_agent": "tide-reviewer",
+            "recommendation": {
+                "model": "gpt-5.6-terra",
+                "reasoning_effort": "medium",
+                "switch_recommended": True,
+            },
+        },
+    )
+
+    assert "gpt-5.6-terra" in summary
+    assert "reasoning=medium" in summary
+    assert "reviewer=tide-reviewer" in summary
+    assert len(summary) < 220
+
+
+def test_review_packet_summary_exposes_selected_reviewer() -> None:
+    summary = _tool_summary(
+        "review_packet",
+        {
+            "review_id": "review-123",
+            "review_mode": "full",
+            "files": ["app.py"],
+            "reused": False,
+            "reviewer_agent": "tide-reviewer-critical",
+        },
+    )
+
+    assert "tide-reviewer-critical" in summary
 
 
 def test_running_validation_summary_says_pending_not_failed() -> None:
