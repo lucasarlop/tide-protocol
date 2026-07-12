@@ -83,6 +83,28 @@ def test_sensitive_implementation_uses_sol_medium(tmp_path: Path) -> None:
     assert recommendation(result)["preset"] == "sol_medium"
 
 
+def test_data_and_module_contract_gates_are_sensitive(tmp_path: Path) -> None:
+    for gate in ("data", "module_contract"):
+        root = make_repo(tmp_path / gate, {"mode": "fast", "hardgates": [gate]})
+
+        result = model_policy(root, phase="implementation")
+
+        assert result["strict"] is True
+        assert recommendation(result)["preset"] == "sol_medium"
+
+
+def test_economy_uses_luna_only_for_low_risk_support_phases(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+
+    exploration = model_policy(root, phase="exploration", strategy="economy")
+    validation = model_policy(root, phase="validation", strategy="economy")
+    implementation = model_policy(root, phase="implementation", strategy="economy")
+
+    assert recommendation(exploration)["preset"] == "luna_medium"
+    assert recommendation(validation)["preset"] == "luna_medium"
+    assert recommendation(implementation)["preset"] == "terra_medium"
+
+
 def test_incremental_review_uses_terra_high_reviewer(tmp_path: Path) -> None:
     result = model_policy(
         make_repo(tmp_path),
