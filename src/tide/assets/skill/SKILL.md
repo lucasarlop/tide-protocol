@@ -14,6 +14,9 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Read the returned `model_policy`. Call `model_policy` explicitly when phase or diagnosis changes materially.
 - Continue routine work without permission: read, edit inside boundary, targeted tests, blocker fixes, split, local rebuilds, health checks.
 - Ask one concise question only for a real requirement choice, destructive data change, production action, external cost, or irreversible Git action not already authorized.
+- Validation, independent review, blocker correction, and local operational verification are autonomous. Never end merely because one of them remains.
+- If `authorization_request` is present, call `authorize` with exactly those gates. Let the client permission prompt collect the user's choice; do not replace it with a vague prose request.
+- If `agent_should_continue=true`, execute the exact `next_action` before producing a final response.
 
 ## Model policy
 
@@ -54,6 +57,7 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Every finding must include stable `id`, `severity`, `message`, `paths`, and `expected_action`.
 - Only `blocking` findings stay in current task. Record `follow_up`; do not implement it automatically.
 - Never dump full review history or raw diff unless needed.
+- A required review is work for the agent, not a user authorization gate. Generate the packet and run the returned reviewer automatically.
 
 ## Validate and close
 
@@ -61,10 +65,12 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Final validation once per fingerprint. Tide reuses current final evidence.
 - Mandatory commands are matched semantically: shell wrappers such as `zsh -lc` do not invalidate equivalent evidence.
 - Read `missing_required_validations` and `uncovered_validation_files` from `status` or `check`; do not guess which command is missing.
+- A required validation is work for the agent, not a user authorization gate. Run it automatically unless it has external cost, production impact, or destructive effects.
 - Rebuild, restart, health, worker, queue, and smoke checks use `operational_verify`; they do not reopen code review.
 - `check` is source of truth. Read exact blocker and next action. Never guess.
 - A commit matching approved files closes cleanly; do not request another review.
 - Never commit, push, merge, deploy, or delete data without explicit or prior user authorization.
+- Only produce a final response when Tide is ready, the user denied an authorization prompt, a genuine requirement decision remains, or an external dependency makes progress impossible.
 
 ## Resume and handoff
 
@@ -85,6 +91,7 @@ Patterns:
 
 - Model: `Tide recommends Terra medium for this bounded implementation. No switch needed during validation.`
 - Progress: `Targeted tests passed. Review found one blocker in executor.py.`
+- Authorization: call `authorize`; let the client display the permission prompt.
 - Finding: `BLOCKING — executor.py:80 — missing handler does not cancel successors.`
 - Question: `Reset deletes 773 partial rows for service 226. Reset only this service?`
 - Final: `Implemented. Tests passed. Review approved. Tide ready. Not committed.`
