@@ -1,263 +1,183 @@
-# Tide Protocol — experimental core
+# Tide Protocol 1.0
 
-Tide is a minimal quality protocol for AI coding agents.
-
-It controls implementation quality before work is accepted by the supervisor.
+Tide is a quality protocol for autonomous AI coding agents.
 
 ```text
-live code
+resume state
 → smallest safe boundary
-→ explicit validation plan
-→ Module Locks and hardgates
-→ one writer
-→ current validation evidence
-→ optional independent review
-→ deterministic quality gate
-→ supervisor
+→ targeted evidence
+→ incremental independent review
+→ final validation once
+→ operational verification
+→ commit or supervisor checkpoint
 ```
 
 ## Install
 
 ```bash
 uv tool install --python 3.12 \
-  'git+https://github.com/lucasarlop/tide-protocol.git@experiment/tide-core'
+  'git+https://github.com/lucasarlop/tide-protocol.git@main'
 
 tide setup --codex --opencode
 tide doctor
 ```
 
-Update later with:
+Update later:
 
 ```bash
 tide update
 ```
 
-## State
+## Tide 1.0 behavior
 
-Durable state:
+### Trusted autonomy
 
-- global Tide Skill;
-- quality and hardgate rules;
-- engine adapters;
-- short Module Locks under `.tide/locks/`.
+Agents continue routine work without asking permission:
 
-Temporary state lives under `<git-dir>/tide/`:
+- read and edit inside the declared boundary;
+- run targeted validations;
+- fix blocking review findings;
+- split a task into a smaller child segment;
+- rebuild local containers;
+- run health, worker, queue, and smoke checks.
 
-- current task, boundary, and required validation plan;
-- acknowledged external worktree changes;
-- validation evidence, background jobs, and full logs;
-- review packets;
-- reviewer verdict and receipt.
+Agents ask one concise question only for:
 
-Temporary evidence is not versioned. Validation and review are tied to the exact diff fingerprint.
+- a real requirement choice;
+- destructive data changes;
+- production actions;
+- meaningful external cost;
+- commit, push, merge, deploy, or another irreversible action not already authorized.
 
-## Normal flow
+### Resume and handoff
 
-```bash
-tide prepare 'Fix EPUB footnote backlinks' \
-  --file 'src/epub/**' \
-  --file 'tests/epub/**' \
-  --require-validation 'pytest tests/epub -x'
+Tide continuously stores a compact checkpoint containing:
 
-# Only after explicit supervisor approval:
-tide authorize --all
+- current task and segment;
+- boundary and changed files;
+- valid evidence;
+- latest review and blockers;
+- follow-ups and pending hardgates;
+- exact next action.
 
-tide validate -- pytest tests/epub -x
+In a genuinely new agent session, use MCP `resume`. `handoff` is optional and useful when explicitly moving work to another session or agent.
 
-# Only when review_required=true:
-tide review-packet
-# pass only the returned review_id to tide-reviewer;
-# the reviewer reads the packet and submits its own verdict
+Restoring an old conversation is not a handoff. It keeps the old model context.
 
-tide check
-```
+### Long validations without shell sleep
 
-The agent normally calls these operations through MCP.
-
-## Change scope or validation plan without restarting
-
-Do not call a new `prepare` when implementation reveals another file, another mandatory check, or the review requests a correction.
-
-```bash
-tide boundary add .gitlab-ci.yml
-tide boundary remove old-file.py
-
-tide revise \
-  --task 'Correct review findings' \
-  --add-file .gitlab-ci.yml \
-  --add-required-validation './scripts/run_tests.sh'
-```
-
-`revise` preserves the original working-tree baseline, recalculates policy and Module Locks, and invalidates previous validation and review evidence. It does not create a false `dirty_boundary` for changes produced by the current task.
-
-Adding a file that is already changed when `revise` expands the boundary creates a `scope_expansion` hardgate. The agent cannot silently absorb an existing worktree change into the task; explicit supervisor authorization is required.
-
-## External worktree changes
-
-An unrelated file created or modified during the session must not be added to the task boundary merely to make `outside_boundary` disappear.
-
-Use the MCP tool `external_acknowledge` with the exact file and a concrete reason:
+Use background validation and `validation_wait`:
 
 ```json
 {
-  "files": ["session-export.md"],
-  "reason": "session export created by the client"
+  "command": ["pytest"],
+  "background": true,
+  "phase": "targeted"
 }
 ```
 
-The file remains outside the task boundary, diff, validation fingerprint, and review packet. Tide stores its current fingerprint and ignores it only while it remains unchanged. A later modification makes it an outside-boundary violation again.
+Then:
 
-## Required validations
-
-Task-level required validations complement Module Lock validations. `tide check` is ready only when every exact required command has passed against the current diff fingerprint.
-
-A passing targeted test no longer substitutes for a declared full suite:
-
-```text
-required_validations:
-- ./scripts/run_tests.sh
-- python scripts/validate_epub.py output.epub
-
-missing_validations:
-- ./scripts/run_tests.sh
+```json
+{
+  "validation_id": "validation-job-...",
+  "wait_seconds": 20
+}
 ```
 
-## Long validations
+While a job runs, `passed` is `null`, not `false`.
 
-Validation returns compact evidence by default. Commands likely to outlive the MCP request can run in the background:
+### Proportional evidence
 
-```bash
-tide validate --background --timeout 1800 -- ./scripts/run_tests.sh
-# returns validation_id
+- Use `targeted` during implementation.
+- Use `final` once per unchanged fingerprint.
+- Repeating the same final validation reuses current evidence.
+- A code change invalidates only evidence covering the changed files.
 
-tide validation-status <validation-id>
+### Incremental review
+
+The first compatible review may be full. Later reviews include only the delta.
+
+Every structured finding contains:
+
+```json
+{
+  "id": "stable-finding-id",
+  "severity": "blocking",
+  "message": "Concrete defect and impact.",
+  "paths": ["src/module.py:42-51"],
+  "expected_action": "Concrete correction."
+}
 ```
 
-The worker stores its result under `<git-dir>/tide/validation-jobs/`. When collected, the evidence remains tied to the diff fingerprint captured when the job started. A code change while the command runs makes that evidence stale rather than current.
+An approved fingerprint cannot be reviewed again without real code or boundary change.
 
-Full stdout and stderr stay under `<git-dir>/tide/logs/` and are loaded only when needed:
+### Segments and receipts
 
-```bash
-tide validation-log <log-id>
-tide validate --verbose -- pytest -q
-```
+`split` creates a smaller child segment, resets child workflow budgets, and archives the parent.
 
-Compact evidence limits both the number of lines and total bytes. Very long coverage lines are clipped; the complete output remains available through `validation_log`.
+If the parent review was approved, Tide stores a receipt containing its file fingerprints. Parent files do not need manual `external_acknowledge` in the child segment.
 
-## Independent review
+### Operational verification
 
-`tide review-packet` stores the detailed packet and returns only:
+Rebuilds, restarts, health checks, worker pings, queue checks, and smoke tests do not reopen code review.
 
-- `review_id`;
-- resource URI;
-- files and diff size;
-- current and missing validation counts;
-- review focus;
-- whether the diff was truncated.
+Record them through `operational_verify`.
 
-The main writer passes only `review_id` to `tide-reviewer`. The reviewer reads the packet directly with Tide `review_get` or the MCP resource:
+### Commit recognition
 
-```text
-tide://reviews/<review-id>
-```
+When committed files match the approved content, Tide recognizes the commit and closes without requesting another review.
 
-The detailed packet contains a one-time submission token. The reviewer submits the verdict directly through `review_submit`; Tide stores a receipt and rejects a second submission for the same packet. This removes the normal writer relay from the review flow.
+### Communication
 
-A packet with `diff_truncated=true` cannot be approved. The task boundary must be reduced or unrelated external changes must be acknowledged before a new packet is created.
+Tide adapters use a Caveman-lite policy:
 
-## Simplicity signals
+- complete, professional, short sentences;
+- no filler, pleasantries, hedging, or routine tool narration;
+- no raw log dumps;
+- exact code, commands, paths, API names, and error strings;
+- normal prose for risk, ambiguity, ordered procedures, and irreversible actions.
 
-Tide reviews simplicity changes caused by the current diff instead of listing every large legacy function in a touched file. It signals:
+The external Caveman skill is optional. Tide does not require it because its full rules add per-turn input overhead and do not compress tool stdout or reasoning.
 
-- a new source file above 400 lines;
-- a new Python function above 100 lines;
-- an existing Python function above 100 lines that grows by more than 40 lines.
+## MCP surface
 
-## Context and code-review-graph
+Tide exposes:
 
-Tide treats current code, Git state, current diff, and real validations as truth.
+- `prepare`, `revise`, `split`;
+- `resume`, `handoff`;
+- `validate`, `validation_status`, `validation_wait`, `validation_log`;
+- `review_packet`, `review_get`, `review_submit`;
+- `operational_verify`;
+- `external_acknowledge`, `authorize`;
+- `check`, `status`;
+- `context`, `lock_list`, `lock_template`.
 
-When `code-review-graph` is available, Tide recommends a sequence based on context quality:
-
-- build the graph if the index is missing;
-- use architecture overview and semantic search for broad or weak results;
-- use minimal context and impact analysis for focused tasks;
-- ignore irrelevant graph results and confirm all findings against current code.
-
-Adapters instruct agents to use graph context before implementation, not only before final review.
-
-## Hardgates
-
-Hardgates stop mutation until explicit supervisor authorization for sensitive work such as:
-
-- production and deploy;
-- database and migrations;
-- auth and secrets;
-- real data or reprocessing;
-- infrastructure and CI/CD;
-- public API contracts;
-- dependencies and package manifests;
-- protected Module Lock contracts;
-- pre-existing changes inside the task boundary;
-- late expansion of the task boundary over already-changed files.
-
-Dependency detection includes `pyproject.toml`, `setup.py`, `setup.cfg`, requirements files, lock files, Node, Go, Rust, Ruby, Java/Gradle, and Composer manifests.
+MCP text output stays compact. Full structured state remains in `structuredContent`. Full validation logs remain lazy.
 
 ## Module Locks
 
-A Module Lock protects a mature production module. It records only what is expensive or unsafe to rediscover:
-
-- stable responsibility;
-- invariants;
-- external contracts;
-- mandatory validations;
-- sensitive changes.
+Module Locks protect mature production contracts:
 
 ```bash
 tide lock draft src/epub --name epub-generation
 tide lock validate .tide/locks/epub-generation.md
 ```
 
-Do not document every class, file, or function.
+A lock records only stable responsibility, invariants, external contracts, mandatory validations, and sensitive changes.
 
-## CLI output
+## State
 
-Human-readable output is the default. Use `--json` for scripts:
+Temporary state lives under `<git-dir>/tide/` and is not versioned:
 
-```bash
-tide status
-tide status --json
-```
+- active task and segment receipts;
+- validation evidence and background jobs;
+- compact logs;
+- review packets and receipts;
+- resume checkpoint;
+- operational checks.
 
-## MCP surface
-
-Tide exposes:
-
-- `prepare` and `revise` with required validation plans;
-- `external_acknowledge` for stable unrelated worktree changes;
-- `authorize`;
-- `context`;
-- `validate`, `validation_status`, and `validation_log`;
-- `review_packet`, `review_get`, and `review_submit`;
-- `check` and `status`;
-- `lock_list` and `lock_template`.
-
-Every tool schema rejects unknown arguments. MCP text content is a short human summary while full data remains in `structuredContent`, avoiding duplicate large JSON payloads in clients such as Codex.
-
-Review packets are also MCP resources under `tide://reviews/`.
-
-## Communication
-
-Adapters require short, direct communication. Agents should not announce routine steps or maintain visible todos unless requested. They should interrupt only for authorization, a real blocker, or the final checkpoint.
-
-## Uninstall
-
-```bash
-tide uninstall --dry-run
-tide uninstall --yes
-```
-
-Tide removes only its managed blocks, reviewer files, MCP registration, shared Skill, and package. It preserves unrelated Codex/OpenCode settings and independent `code-review-graph` configuration.
+Evidence is tied to exact file content or diff fingerprints.
 
 ## Development
 
@@ -268,12 +188,9 @@ pip install -e . pytest
 pytest
 ```
 
-Deliberate omissions:
+## Uninstall
 
-- versioned Waves;
-- persistent execution history;
-- Taiga integration;
-- report agents;
-- fleets of specialized reviewers;
-- automatic commits;
-- a second implementation of code-review-graph.
+```bash
+tide uninstall --dry-run
+tide uninstall --yes
+```
