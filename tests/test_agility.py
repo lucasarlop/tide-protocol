@@ -45,22 +45,12 @@ def make_repo(tmp_path: Path, files: dict[str, str] | None = None) -> Path:
 
 
 def test_scoped_validation_survives_unrelated_delta_and_reports_only_gap(tmp_path: Path) -> None:
-    root = make_repo(
-        tmp_path,
-        {
-            "app.py": "VALUE = 1\n",
-            "ui.ts": "export const value = 1;\n",
-        },
-    )
+    root = make_repo(tmp_path, {"app.py": "VALUE = 1\n", "ui.ts": "export const value = 1;\n"})
     report = prepare(root, "small feature", ["app.py", "ui.ts"])
     assert report["mode"] == "fast"
 
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
-    record_validation(
-        root,
-        ["python", "-c", "assert True"],
-        covers=["app.py"],
-    )
+    record_validation(root, ["python", "-c", "assert True"], covers=["app.py"])
     (root / "ui.ts").write_text("export const value = 2;\n", encoding="utf-8")
 
     blocked = check(root)
@@ -69,27 +59,14 @@ def test_scoped_validation_survives_unrelated_delta_and_reports_only_gap(tmp_pat
     assert blocked["uncovered_validation_files"] == ["ui.ts"]
     assert "changed files lack current validation coverage" in blocked["blockers"]
 
-    record_validation(
-        root,
-        ["python", "-c", "assert True"],
-        covers=["ui.ts"],
-        phase="final",
-    )
+    record_validation(root, ["python", "-c", "assert True"], covers=["ui.ts"], phase="final")
     ready = check(root)
     assert ready["ready"]
     assert ready["current_validation_count"] == 2
 
 
 def test_review_after_first_cycle_contains_only_new_delta(tmp_path: Path) -> None:
-    root = make_repo(
-        tmp_path,
-        {
-            "app.py": "VALUE = 1\n",
-            "a.py": "A = 1\n",
-            "b.py": "B = 1\n",
-            "c.py": "C = 1\n",
-        },
-    )
+    root = make_repo(tmp_path, {"app.py": "VALUE = 1\n", "a.py": "A = 1\n", "b.py": "B = 1\n", "c.py": "C = 1\n"})
     prepare(root, "change several files", ["app.py", "a.py", "b.py", "c.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     (root / "a.py").write_text("A = 2\n", encoding="utf-8")
@@ -99,13 +76,7 @@ def test_review_after_first_cycle_contains_only_new_delta(tmp_path: Path) -> Non
     first = create_review_packet(root)
     assert first["review_mode"] == "full"
     packet = get_review_packet(root, first["review_id"])
-    submit_review(
-        root,
-        review_id=first["review_id"],
-        submission_token=packet["submission_token"],
-        approved=False,
-        findings=[{"severity": "blocking", "message": "app behavior is incomplete"}],
-    )
+    submit_review(root, review_id=first["review_id"], submission_token=packet["submission_token"], approved=False, findings=[{"severity": "blocking", "message": "app behavior is incomplete"}])
 
     (root / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
     record_validation(root, ["python", "-c", "assert True"], covers=["app.py"])
@@ -119,28 +90,14 @@ def test_review_after_first_cycle_contains_only_new_delta(tmp_path: Path) -> Non
 
 
 def test_follow_up_does_not_block_and_approved_review_locks_scope(tmp_path: Path) -> None:
-    root = make_repo(
-        tmp_path,
-        {
-            "app.py": "VALUE = 1\n",
-            "a.py": "A = 1\n",
-            "b.py": "B = 1\n",
-            "c.py": "C = 1\n",
-        },
-    )
+    root = make_repo(tmp_path, {"app.py": "VALUE = 1\n", "a.py": "A = 1\n", "b.py": "B = 1\n", "c.py": "C = 1\n"})
     prepare(root, "change several files", ["app.py", "a.py", "b.py", "c.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     record_validation(root, ["python", "-c", "assert True"], phase="final")
     meta = create_review_packet(root)
     packet = get_review_packet(root, meta["review_id"])
 
-    review = submit_review(
-        root,
-        review_id=meta["review_id"],
-        submission_token=packet["submission_token"],
-        approved=True,
-        findings=[{"severity": "follow_up", "message": "extract helper later"}],
-    )
+    review = submit_review(root, review_id=meta["review_id"], submission_token=packet["submission_token"], approved=True, findings=[{"severity": "follow_up", "message": "extract helper later"}])
 
     assert review["approved"]
     report = check(root)
@@ -151,21 +108,14 @@ def test_follow_up_does_not_block_and_approved_review_locks_scope(tmp_path: Path
     with pytest.raises(TideError, match="closure is locked"):
         revise(root, task="extra cleanup")
 
-    reopened = reopen(root, reason="new blocking regression")
-    assert "closure_reopen" in reopened["pending_hardgates"]
-    assert not reopened["mutation_allowed"]
+    reopened = reopen(root, reason="verify approved runtime")
+    assert reopened["lifecycle"] == "operational_verification"
+    assert reopened["closure_locked"]
+    assert reopened["mutation_allowed"] is False
 
 
 def test_repeated_scope_expansion_requires_split_or_explicit_extension(tmp_path: Path) -> None:
-    root = make_repo(
-        tmp_path,
-        {
-            "app.py": "VALUE = 1\n",
-            "a.py": "A = 1\n",
-            "b.py": "B = 1\n",
-            "c.py": "C = 1\n",
-        },
-    )
+    root = make_repo(tmp_path, {"app.py": "VALUE = 1\n", "a.py": "A = 1\n", "b.py": "B = 1\n", "c.py": "C = 1\n"})
     prepare(root, "small refactor", ["app.py"])
     revise(root, add_files=["a.py"])
     revise(root, add_files=["b.py"])

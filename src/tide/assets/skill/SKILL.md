@@ -1,89 +1,64 @@
 ---
 name: tide
-description: Mandatory quality protocol for code changes. Use before editing code, configuration, tests, dependencies, infrastructure, or project files.
+description: Mandatory quality protocol for autonomous code changes.
 ---
 
-# Tide
+# Tide 1.0
 
-Protect quality without slowing the writer unnecessarily.
+Autonomy by default. Evidence proportional. Output minimal. State resumable.
 
-## Prepare
+## Start
 
-1. Treat live code, Git state, the current diff, and real validations as truth.
-2. Call `prepare` with the smallest likely boundary and exact final validation commands.
-3. Tide selects `fast` mode for ordinary changes and `strict` mode for sensitive hardgates or Module Locks.
-4. Do not edit while `mutation_allowed` is false.
-5. Use code-review-graph only when its results are relevant and confirm them against current code.
+- Treat live code, Git state, current diff, and real validation as truth.
+- Call `resume` first. If no active task, call `prepare` with smallest safe boundary.
+- Continue routine work without permission: read, edit inside boundary, targeted tests, blocker fixes, split, local rebuilds, health checks.
+- Ask one concise question only for a real requirement choice, destructive data change, production action, external cost, or irreversible Git action not already authorized.
 
 ## Implement
 
-- One writer.
-- Smallest safe delta.
-- Run targeted validations during implementation, using `covers` to name the changed files or patterns they validate.
-- Do not rerun unaffected frontend, Compose, or full-suite checks after every small patch.
-- Use `background=true` for long commands and poll `validation_status`; never start a duplicate while the first job may still be running.
-- Use `revise` only for adjustments inside the current segment.
-- Do not absorb unrelated worktree files into the boundary. Use `external_acknowledge` for stable client-generated files.
-- Adding an already-changed file creates the `scope_expansion` hardgate.
+- One writer. Smallest safe delta.
+- Use targeted validation during implementation with precise `covers`.
+- Long command: `background=true`, then `validation_wait`. Never use shell `sleep` to poll.
+- Never duplicate a running validation.
+- Use `revise` only inside current segment.
+- Use `split` when scope stops converging. Approved parent segments become receipts automatically.
+- Do not acknowledge parent-segment files manually.
 
-## Converge
+## Review
 
-- `split_required=true` means the current segment is expanding faster than it is converging.
-- Prefer `split` with a concrete child task and smaller boundary. It archives the parent, resets child review/scope budgets, and retains compatible validation evidence.
-- Do not simulate a split through repeated `revise`; revise intentionally preserves the current segment budget.
-- `extended_investigation` is bounded and expiring. Use it only with explicit supervisor authorization; it does not provide unlimited review retries.
-- Findings are classified as:
-  - `blocking`: correctness, data loss, security, contract, regression, or indispensable validation gaps;
-  - `follow_up`: worthwhile improvement for a separate task;
-  - `info`: non-blocking observation.
-- Give findings stable IDs so the same issue is deduplicated across reviews and languages.
-- Only blocking findings stay in the current task. Do not implement follow-ups automatically.
-- After the first compatible review, use the default incremental packet.
-- Force `full=true` only when central architecture, invariants, contracts, schema, security, or the boundary changed, and provide `full_reason`.
-- Reuse an existing pending packet for an unchanged fingerprint. A repeated read of an unsubmitted packet counts as another review attempt.
+- First compatible review may be full. Later reviews are incremental.
+- Approved fingerprint is immutable. Do not request another review without real code or boundary change.
+- Every finding must include stable `id`, `severity`, `message`, `paths`, and `expected_action`.
+- Only `blocking` findings stay in current task. Record `follow_up`; do not implement it automatically.
+- Never dump full review history or raw diff unless needed.
 
-## Close
+## Validate and close
 
-1. Run final validations once, near closure, with `phase=final`.
-2. Ensure every changed task file has current passing validation coverage.
-3. Create `review_packet` only after validation coverage is complete.
-4. A truncated packet cannot be approved.
-5. Pass only `review_id` to `tide-reviewer`; the reviewer reads and submits directly.
-6. An approved review locks closure. After that, only final validation and `check` are allowed.
-7. Use `reopen` only for a concrete new blocking defect. `reopen` creates `closure_reopen`; authorize that gate after the reopen call.
-8. Read the exact `primary_blocker`, `pending_hardgates`, and `next_action` returned by `check`. Do not guess the blocker.
-9. Report completion only when `ready=true`.
-10. Never commit or push without explicit supervisor approval.
+- Targeted validation after each blocker fix.
+- Final validation once per fingerprint. Tide reuses current final evidence.
+- Rebuild, restart, health, worker, queue, and smoke checks use `operational_verify`; they do not reopen code review.
+- `check` is source of truth. Read exact blocker and next action. Never guess.
+- A commit matching approved files closes cleanly; do not request another review.
+- Never commit, push, merge, deploy, or delete data without explicit or prior user authorization.
 
-## Session handoff
+## Resume and handoff
 
-- Use `handoff` before moving to a fresh agent session.
-- Continue from the returned task, segment, boundary, validation evidence, blockers, follow-ups, hardgates, and next action.
-- Do not keep a multi-hour conversation alive merely to preserve technical state.
+- Tide continuously saves compact resume state.
+- In a genuinely new session, call `resume` and continue from task, segment, blockers, evidence, and next action.
+- `handoff` is optional: use when user asks, when moving to another agent, or before ending a saturated session.
+- Restoring an old conversation is not a handoff and does not reduce context.
 
-## Communication
+## Communication: Caveman-lite
 
-- short sentences;
-- concrete decisions;
-- no routine narration;
-- interrupt only for authorization, a real blocker, split_required, or the final checkpoint;
-- report follow-ups separately from blockers.
+- Professional, complete, short sentences.
+- No filler, pleasantries, hedging, routine narration, decorative tables, or repeated request summaries.
+- Keep code, commands, paths, API names, and error strings exact.
+- Never paste long raw logs. Quote shortest decisive lines and reference saved log.
+- Normal prose for security, ambiguity, ordered multi-step instructions, and irreversible actions.
 
-## Completion checkpoint
+Patterns:
 
-- change;
-- segment and files;
-- mode and workflow metrics;
-- acknowledged external changes;
-- Module Locks and hardgates;
-- current validation coverage;
-- review and deduplicated follow-up tasks;
-- residual risk;
-- waiting for supervisor approval.
-
-Load references only when relevant:
-
-- `references/quality.md`
-- `references/hardgates.md`
-- `references/module-locks.md`
-- `references/review.md`
+- Progress: `Targeted tests passed. Review found one blocker in executor.py.`
+- Finding: `BLOCKING — executor.py:80 — missing handler does not cancel successors.`
+- Question: `Reset deletes 773 partial rows for service 226. Reset only this service?`
+- Final: `Implemented. Tests passed. Review approved. Tide ready. Not committed.`
