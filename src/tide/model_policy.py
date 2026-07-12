@@ -8,8 +8,8 @@ _CORE: ModuleType | None = None
 STRATEGIES = {'economy', 'balanced', 'quality', 'manual'}
 PHASES = {'planning', 'exploration', 'implementation', 'correction', 'investigation', 'validation', 'review', 'operational', 'closure'}
 REVIEW_MODES = {'incremental', 'full'}
-SENSITIVE_GATES = {'auth', 'database', 'dependency', 'infrastructure', 'production', 'public_api', 'secrets'}
-PRESETS: dict[str, dict[str, str]] = {'luna_low': {'model_class': 'fast', 'model': 'gpt-5.6-luna', 'reasoning_effort': 'low'}, 'terra_medium': {'model_class': 'balanced', 'model': 'gpt-5.6-terra', 'reasoning_effort': 'medium'}, 'terra_high': {'model_class': 'balanced', 'model': 'gpt-5.6-terra', 'reasoning_effort': 'high'}, 'sol_medium': {'model_class': 'reasoning', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'medium'}, 'sol_high': {'model_class': 'reasoning', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'high'}, 'sol_xhigh': {'model_class': 'critical', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'xhigh'}}
+SENSITIVE_GATES = {'auth', 'database', 'dependency', 'infrastructure', 'production', 'public_api', 'secrets', 'data', 'module_contract'}
+PRESETS: dict[str, dict[str, str]] = {'luna_low': {'model_class': 'fast', 'model': 'gpt-5.6-luna', 'reasoning_effort': 'low'}, 'luna_medium': {'model_class': 'fast', 'model': 'gpt-5.6-luna', 'reasoning_effort': 'medium'}, 'terra_medium': {'model_class': 'balanced', 'model': 'gpt-5.6-terra', 'reasoning_effort': 'medium'}, 'terra_high': {'model_class': 'balanced', 'model': 'gpt-5.6-terra', 'reasoning_effort': 'high'}, 'sol_medium': {'model_class': 'reasoning', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'medium'}, 'sol_high': {'model_class': 'reasoning', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'high'}, 'sol_xhigh': {'model_class': 'critical', 'model': 'gpt-5.6-sol', 'reasoning_effort': 'xhigh'}}
 
 def install(core: ModuleType) -> None:
     global _CORE
@@ -97,16 +97,20 @@ def _risk_signals(runtime: dict[str, Any]) -> tuple[bool, list[str]]:
 def _select_preset(*, strategy: str, phase: str, strict: bool, review_mode: str, failed_attempts: int, root_cause_known: bool | None, allow_xhigh: bool) -> tuple[str | None, list[str]]:
     if strategy == 'manual':
         return (None, ['manual strategy leaves model selection to the user'])
-    if allow_xhigh and phase in {'correction', 'investigation'} and failed_attempts >= 2 and (root_cause_known is False):
+    if allow_xhigh and phase in {'correction', 'investigation'} and failed_attempts >= 2 and root_cause_known is False:
         return ('sol_xhigh', ['root cause remains unknown after at least two bounded attempts'])
     if phase == 'operational':
-        return (('terra_medium' if strategy == 'quality' else 'luna_low'), ['operational checks are deterministic and should not trigger deep reasoning'])
+        return ('terra_medium' if strategy == 'quality' else 'luna_low', ['operational checks are deterministic and should not trigger deep reasoning'])
     if phase == 'closure':
-        return (('terra_medium' if strategy == 'quality' else 'luna_low'), ['closure is evidence reporting, not a new implementation pass'])
+        return ('terra_medium' if strategy == 'quality' else 'luna_low', ['closure is evidence reporting, not a new implementation pass'])
     if phase == 'exploration':
-        return (('sol_medium' if strategy == 'quality' else 'terra_medium'), ['read-heavy exploration needs reliable tool use but not maximum reasoning'])
+        if strategy == 'economy':
+            return ('luna_medium', ['economy strategy uses the fast model for read-heavy exploration'])
+        return ('sol_medium' if strategy == 'quality' else 'terra_medium', ['read-heavy exploration needs reliable tool use but not maximum reasoning'])
     if phase == 'validation':
-        return (('sol_medium' if strict and strategy == 'quality' else 'terra_medium'), ['running tests is mechanical; interpretation needs balanced reasoning'])
+        if strategy == 'economy' and not strict:
+            return ('luna_medium', ['economy strategy uses the fast model for routine validation interpretation'])
+        return ('sol_medium' if strict and strategy == 'quality' else 'terra_medium', ['running tests is mechanical; interpretation needs balanced reasoning'])
     if phase == 'review':
         if strict or review_mode == 'full' or strategy == 'quality':
             return ('sol_high', ['full or sensitive review needs assumption checking and edge-case analysis'])
@@ -119,12 +123,12 @@ def _select_preset(*, strategy: str, phase: str, strict: bool, review_mode: str,
         return ('terra_medium', ['ordinary bounded planning is everyday engineering work'])
     if phase == 'implementation':
         if strict:
-            return (('sol_high' if strategy == 'quality' else 'sol_medium'), ['sensitive implementation keeps the strongest model but avoids unnecessary maximum effort'])
+            return ('sol_high' if strategy == 'quality' else 'sol_medium', ['sensitive implementation keeps the strongest model but avoids unnecessary maximum effort'])
         if strategy == 'quality':
             return ('sol_medium', ['quality strategy raises implementation model capability'])
         return ('terra_medium', ['bounded implementation has known acceptance criteria'])
     if phase in {'correction', 'investigation'}:
-        if root_cause_known is True and (not strict):
+        if root_cause_known is True and not strict:
             return ('terra_medium', ['root cause is known; apply the smallest verified correction'])
         return ('sol_high', ['unresolved debugging needs deeper causal analysis before another patch'])
     raise TideError(f'unsupported model-policy phase: {phase}')
