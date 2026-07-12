@@ -132,7 +132,6 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         "prepare": "planning",
         "revise": "implementation",
         "split": "implementation",
-        "check": "closure",
     }
     if name == "reopen" and isinstance(value, dict):
         phase = (
@@ -142,12 +141,28 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         )
         return _attach(value, phase=phase)
     if name == "review_packet":
-        review_mode = "full" if bool(arguments.get("full", False)) else "incremental"
+        review_mode = (
+            str(value.get("review_mode"))
+            if isinstance(value, dict)
+            and value.get("review_mode") in {"full", "incremental"}
+            else ("full" if bool(arguments.get("full", False)) else "incremental")
+        )
         enriched = _attach(value, phase="review", review_mode=review_mode)
         if isinstance(enriched, dict):
             policy = enriched.get("model_policy") or {}
             enriched["reviewer_agent"] = policy.get("reviewer_agent")
         return enriched
+    if name == "check" and isinstance(value, dict):
+        blocker = str(value.get("primary_blocker") or "").lower()
+        if value.get("ready"):
+            phase = "closure"
+        elif "review" in blocker:
+            phase = "review"
+        elif "validation" in blocker:
+            phase = "validation"
+        else:
+            phase = "correction"
+        return _attach(value, phase=phase)
     if name in {"resume", "handoff", "status"}:
         return _attach(value)
     if name in phases:
