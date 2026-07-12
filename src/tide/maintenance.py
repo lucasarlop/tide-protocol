@@ -91,17 +91,25 @@ def _passed_commands(runtime: dict[str, Any]) -> list[tuple[str, tuple[str, ...]
     ]
 
 
+def _matching_command(
+    required: str,
+    passed: list[tuple[str, tuple[str, ...]]],
+) -> str | None:
+    required_display = display_command(required)
+    exact = next((display for display, _ in passed if display == required_display), None)
+    if exact is not None:
+        return exact
+    expected = canonical_command(required)
+    return next((display for display, key in passed if key == expected), None)
+
+
 def _compatible_required_validations(
     runtime: dict[str, Any],
     locks: list[Any],
 ) -> list[str]:
     required = _original_required(runtime, locks)
     passed = _passed_commands(runtime)
-    compatible: list[str] = []
-    for command in required:
-        expected = canonical_command(command)
-        match = next((display for display, key in passed if key == expected), None)
-        compatible.append(match or command)
+    compatible = [_matching_command(command, passed) or command for command in required]
     return sorted(dict.fromkeys(compatible))
 
 
@@ -122,8 +130,7 @@ def _required_status(
     ]
     status: list[dict[str, Any]] = []
     for command in _original_required(runtime, locks):
-        expected = canonical_command(command)
-        match = next((display for display, key in passed if key == expected), None)
+        match = _matching_command(command, passed)
         status.append(
             {
                 "required": command,
@@ -183,6 +190,9 @@ def revise(root: Path, **kwargs: Any) -> dict[str, Any]:
         item
         for item in runtime.get("validations", [])
         if isinstance(item, dict)
+        and item.get("passed")
+        and set(str(path) for path in item.get("files", [])) <= task_files
+        and _agility._validation_is_current(root, item)
     ]
     runtime["validations"] = _deduplicate_validations([*preserved, *current])
     save_runtime(root, runtime)
@@ -212,6 +222,8 @@ def _next_action(
     blockers: list[dict[str, Any]],
     pending: list[str],
 ) -> str:
+    if pending and _ORIGINAL_NEXT_ACTION is not None:
+        return _ORIGINAL_NEXT_ACTION(runtime, blockers, pending)
     missing = list(runtime.get("missing_required_validations", []))
     if missing:
         return f"run mandatory validation: {missing[0]}"
@@ -240,10 +252,11 @@ def preparation_report(
             "stale_validation_count": runtime.get("stale_validation_count", 0),
         }
     )
-    if missing:
-        report["next_action"] = f"run mandatory validation: {missing[0]}"
-    elif uncovered:
-        report["next_action"] = f"validate uncovered files: {', '.join(uncovered[:3])}"
+    if not report.get("pending_hardgates"):
+        if missing:
+            report["next_action"] = f"run mandatory validation: {missing[0]}"
+        elif uncovered:
+            report["next_action"] = f"validate uncovered files: {', '.join(uncovered[:3])}"
     checkpoint = _v1._checkpoint(root, runtime)
     report["resume"] = checkpoint
     report["lifecycle"] = runtime.get("lifecycle")
@@ -271,6 +284,8 @@ def create_review_packet(root: Path, **kwargs: Any) -> dict[str, Any]:
 
 
 def _check_next_action(report: dict[str, Any]) -> str:
+    if report.get("pending_hardgates"):
+        return str(report.get("next_action") or "authorize pending hardgates")
     missing = list(report.get("missing_required_validations", []))
     if missing:
         return f"run mandatory validation: {missing[0]}"
