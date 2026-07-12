@@ -1,9 +1,10 @@
-# Tide Protocol 1.0
+# Tide Protocol 1.1
 
-Tide is a quality protocol for autonomous AI coding agents.
+Tide is a quality and model-allocation protocol for autonomous AI coding agents.
 
 ```text
 resume state
+→ model profile for the current phase
 → smallest safe boundary
 → targeted evidence
 → incremental independent review
@@ -28,7 +29,83 @@ Update later:
 tide update
 ```
 
-## Tide 1.0 behavior
+## Model policy
+
+Tide 1.1 adds deterministic, auditable model recommendations. The policy never silently changes the active writer and never escalates merely because a task is long or touches many files.
+
+Default `balanced` strategy:
+
+| Phase | Ordinary change | Sensitive change |
+|---|---|---|
+| Planning | Terra medium | Sol high |
+| Exploration | Terra medium | Terra medium |
+| Implementation | Terra medium | Sol medium |
+| Known-root-cause correction | Terra medium | Sol high |
+| Unresolved investigation | Sol high | Sol high |
+| Incremental review | Terra high reviewer | Sol high critical reviewer |
+| Full review | Sol high critical reviewer | Sol high critical reviewer |
+| Validation | Keep writer; Terra medium guidance | Keep writer; Terra medium guidance |
+| Operational/closure | Keep writer; no escalation | Keep writer; no escalation |
+
+`xhigh` is reserved for one narrow condition: `root_cause_known=false` after at least two bounded failed attempts. File count, elapsed time, and token consumption do not trigger it.
+
+Call the MCP tool:
+
+```json
+{
+  "phase": "implementation"
+}
+```
+
+For a difficult unresolved investigation:
+
+```json
+{
+  "phase": "investigation",
+  "failed_attempts": 2,
+  "root_cause_known": false
+}
+```
+
+The response includes:
+
+- model and reasoning recommendation;
+- whether a writer switch is worthwhile;
+- the safe boundary where a switch may occur;
+- exact signals and reasons;
+- the reviewer agent for the current review mode;
+- Codex and OpenCode adapter hints.
+
+Writer-model changes should occur only in a new session or a real major-phase boundary. Validation, operational checks, and closure never justify model thrashing.
+
+### Reviewers
+
+`tide setup` installs two read-only reviewers:
+
+- `tide-reviewer`: Terra high for narrow, validated incremental packets;
+- `tide-reviewer-critical`: Sol high for full reviews and sensitive changes.
+
+`review_packet` returns the exact `reviewer_agent` to use.
+
+### Project configuration
+
+Optional `.tide/model-policy.json`:
+
+```json
+{
+  "strategy": "balanced",
+  "allow_xhigh": true
+}
+```
+
+Supported strategies:
+
+- `economy`: uses the same quality floors as balanced, with Luna for deterministic operational phases;
+- `balanced`: recommended default;
+- `quality`: raises ordinary planning, implementation, and review capability;
+- `manual`: reports context but leaves selection entirely to the user.
+
+## Tide 1.x behavior
 
 ### Trusted autonomy
 
@@ -135,8 +212,8 @@ Tide adapters use a Caveman-lite policy:
 - complete, professional, short sentences;
 - no filler, pleasantries, hedging, or routine tool narration;
 - no raw log dumps;
-- exact code, commands, paths, API names, and error strings;
-- normal prose for risk, ambiguity, ordered procedures, and irreversible actions.
+- exact code, commands, paths, API names, model names, and error strings;
+- normal prose for risk, ambiguity, model escalation, ordered procedures, and irreversible actions.
 
 The external Caveman skill is optional. Tide does not require it because its full rules add per-turn input overhead and do not compress tool stdout or reasoning.
 
@@ -145,6 +222,7 @@ The external Caveman skill is optional. Tide does not require it because its ful
 Tide exposes:
 
 - `prepare`, `revise`, `split`;
+- `model_policy`;
 - `resume`, `handoff`;
 - `validate`, `validation_status`, `validation_wait`, `validation_log`;
 - `review_packet`, `review_get`, `review_submit`;
