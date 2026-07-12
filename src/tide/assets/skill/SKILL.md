@@ -41,7 +41,9 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Use targeted validation during implementation with precise `covers`.
 - Long command: `background=true`, then `validation_wait`. Never use shell `sleep` to poll.
 - Never duplicate a running validation.
+- After a command fails because an executable, path, or environment is missing, inspect the environment and change the command. Never repeat the identical structural failure.
 - Use `revise` only inside current segment.
+- Changing the required-validation plan preserves passing evidence whose file fingerprints are still current.
 - Use `split` when scope stops converging. Approved parent segments become receipts automatically.
 - Do not acknowledge parent-segment files manually.
 
@@ -57,6 +59,8 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 
 - Targeted validation after each blocker fix.
 - Final validation once per fingerprint. Tide reuses current final evidence.
+- Mandatory commands are matched semantically: shell wrappers such as `zsh -lc` do not invalidate equivalent evidence.
+- Read `missing_required_validations` and `uncovered_validation_files` from `status` or `check`; do not guess which command is missing.
 - Rebuild, restart, health, worker, queue, and smoke checks use `operational_verify`; they do not reopen code review.
 - `check` is source of truth. Read exact blocker and next action. Never guess.
 - A commit matching approved files closes cleanly; do not request another review.
