@@ -39,7 +39,7 @@ def make_repo(tmp_path: Path) -> Path:
     return root
 
 
-def approve(root: Path) -> None:
+def approve(root: Path, findings: list[dict] | None = None, approved: bool = True) -> dict:
     record_validation(
         root,
         [sys.executable, "-c", "assert True"],
@@ -48,12 +48,12 @@ def approve(root: Path) -> None:
     )
     meta = create_review_packet(root)
     packet = get_review_packet(root, meta["review_id"])
-    submit_review(
+    return submit_review(
         root,
         review_id=meta["review_id"],
         submission_token=packet["submission_token"],
-        approved=True,
-        findings=[],
+        approved=approved,
+        findings=findings or [],
     )
 
 
@@ -124,3 +124,43 @@ def test_handoff_and_resume_are_compact_and_equivalent(tmp_path: Path) -> None:
     assert first["task"] == second["task"]
     assert first["segment_id"] == second["segment_id"]
     assert len(str(first)) < 2_000
+
+
+def test_commit_matching_approved_files_closes_without_new_review(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "change app and helper", ["app.py", "helper.py"])
+    (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (root / "helper.py").write_text("HELPER = 2\n", encoding="utf-8")
+    approve(root)
+
+    git(root, "add", "app.py", "helper.py")
+    git(root, "commit", "-m", "change approved files")
+    report = check(root)
+
+    assert report["ready"] is True
+    assert report["lifecycle"] == "committed"
+    assert report["primary_blocker"] is None
+
+
+def test_review_keeps_paths_and_expected_action(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "change app and helper", ["app.py", "helper.py"])
+    (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    (root / "helper.py").write_text("HELPER = 2\n", encoding="utf-8")
+    review = approve(
+        root,
+        approved=False,
+        findings=[
+            {
+                "id": "app-value",
+                "severity": "blocking",
+                "message": "app value incomplete",
+                "paths": ["app.py:1"],
+                "expected_action": "set the final value",
+            }
+        ],
+    )
+
+    finding = review["findings"][0]
+    assert finding["paths"] == ["app.py:1"]
+    assert finding["expected_action"] == "set the final value"
