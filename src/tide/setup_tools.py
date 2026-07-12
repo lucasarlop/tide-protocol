@@ -83,7 +83,7 @@ def _patch_codex_config(path: Path, *, graph_command: str | None) -> None:
     current = path.read_text(encoding='utf-8') if path.exists() else ''
     unmanaged = _strip_managed_block(current, TOML_START, TOML_END)
     graph_already_configured = '[mcp_servers.code-review-graph]' in unmanaged
-    lines = ['[mcp_servers.tide]', 'command = "tide"', 'args = ["mcp", "serve"]', 'default_tools_approval_mode = "auto"', '', '[mcp_servers.tide.tools.authorize]', 'approval_mode = "prompt"', '', '[mcp_servers.tide.tools.validate]', 'approval_mode = "prompt"']
+    lines = ['[mcp_servers.tide]', 'command = "tide"', 'args = ["mcp", "serve"]', 'default_tools_approval_mode = "auto"', '', '[mcp_servers.tide.tools.authorize]', 'approval_mode = "prompt"']
     if graph_command and (not graph_already_configured):
         lines.extend(['', '[mcp_servers.code-review-graph]', f'command = {json.dumps(graph_command)}', 'args = ["serve"]'])
     _patch_text_block(path, TOML_START, TOML_END, '\n'.join(lines) + '\n')
@@ -125,7 +125,7 @@ def _merge_opencode(path: Path, *, bootstrap_path: Path, graph_command: str | No
     if not isinstance(permission, dict):
         raise TideError('OpenCode `permission` must be an object')
     permission['tide_authorize'] = 'ask'
-    permission['tide_validate'] = 'ask'
+    permission['tide_validate'] = 'allow'
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
 def _normalize_jsonc(text: str) -> str:
