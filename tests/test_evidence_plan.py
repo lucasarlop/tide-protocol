@@ -60,7 +60,7 @@ def test_task_validation_plan_blocks_until_exact_command_passes(tmp_path: Path) 
     assert check(root)["ready"]
 
 
-def test_revise_can_change_validation_plan_and_invalidates_evidence(tmp_path: Path) -> None:
+def test_revise_can_change_validation_plan_and_preserves_current_evidence(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     first = f'{sys.executable} -c assert True'
     second = f'{sys.executable} -c assert 2 + 2 == 4'
@@ -76,9 +76,11 @@ def test_revise_can_change_validation_plan_and_invalidates_evidence(tmp_path: Pa
     )
     assert revised["revision"] == 1
     assert revised["required_validations"] == [second]
+    assert revised["current_validation_count"] == 1
     blocked = check(root)
     assert not blocked["ready"]
-    assert blocked["current_validation_count"] == 0
+    assert blocked["current_validation_count"] == 1
+    assert blocked["missing_required_validations"] == [second]
 
 
 def test_background_validation_records_result_for_starting_fingerprint(tmp_path: Path) -> None:
