@@ -11,6 +11,6 @@ def test_mcp_initialize_serves_tide_1_1_policy(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     result = payload["result"]
 
-    assert result["serverInfo"]["version"] == "1.1.0"
+    assert result["serverInfo"]["version"] == "1.1.1"
     assert "model_policy" in result["instructions"]
     assert "two bounded failed attempts" in result["instructions"]
