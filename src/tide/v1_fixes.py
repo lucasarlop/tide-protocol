@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from .project import file_fingerprints, load_runtime, save_runtime
+from .project import load_runtime, save_runtime
 
 _CORE: ModuleType | None = None
 _ORIGINALS: dict[str, Any] = {}
@@ -35,6 +36,19 @@ def _details(findings: list[Any]) -> dict[str, dict[str, Any]]:
     }
 
 
+def _content_hashes(root: Path, files: list[str]) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for name in files:
+        path = root / name
+        if path.is_file():
+            values[name] = hashlib.sha256(path.read_bytes()).hexdigest()
+        elif path.exists():
+            values[name] = "directory"
+        else:
+            values[name] = "missing"
+    return values
+
+
 def _restore_details(root: Path, review: dict[str, Any], findings: list[Any]) -> dict[str, Any]:
     by_id = _details(findings)
     for item in review.get("findings", []):
@@ -49,6 +63,9 @@ def _restore_details(root: Path, review: dict[str, Any], findings: list[Any]) ->
         for historical in runtime.get("review_history", []):
             if isinstance(historical, dict) and historical.get("review_id") == review.get("review_id"):
                 historical.update(review)
+        if review.get("approved"):
+            files = list((runtime.get("approved_files") or {}).keys())
+            runtime["approved_content"] = _content_hashes(root, files)
         save_runtime(root, runtime)
     return review
 
@@ -77,10 +94,10 @@ def _clean_for_approved_files(root: Path, files: list[str]) -> bool:
 
 
 def _approved_files_current(root: Path, runtime: dict[str, Any]) -> bool:
-    expected = runtime.get("approved_files")
+    expected = runtime.get("approved_content")
     if not isinstance(expected, dict) or not expected:
         return False
-    return file_fingerprints(root, list(expected)) == expected
+    return _content_hashes(root, list(expected)) == expected
 
 
 def check(root: Path) -> dict[str, Any]:
@@ -89,7 +106,7 @@ def check(root: Path) -> dict[str, Any]:
     if not runtime or not runtime.get("approved_fingerprint"):
         return report
 
-    approved_files = list((runtime.get("approved_files") or {}).keys())
+    approved_files = list((runtime.get("approved_content") or {}).keys())
     equivalent = _approved_files_current(root, runtime) and _clean_for_approved_files(root, approved_files)
     if not equivalent:
         return report
