@@ -11,7 +11,14 @@ _ORIGINAL_CALL_TOOL = mcp.call_tool
 
 def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     try:
-        return _ORIGINAL_CALL_TOOL(name, arguments)
+        value = _ORIGINAL_CALL_TOOL(name, arguments)
+        if name == "review_submit" and isinstance(value, dict):
+            return {
+                **value,
+                "verdict_submitted": True,
+                "idempotent": False,
+            }
+        return value
     except TideError as exc:
         if name != "review_submit" or "already has a submitted verdict" not in str(exc):
             raise
