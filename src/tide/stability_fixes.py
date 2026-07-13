@@ -5,6 +5,7 @@ from types import ModuleType
 from typing import Any, Callable
 
 from .project import diff_fingerprint, load_runtime, save_runtime
+from .stability import ensure_commit_hook
 
 _CORE: ModuleType | None = None
 _ORIGINALS: dict[str, Callable[..., Any]] = {}
@@ -186,4 +187,8 @@ def preparation_report(root: Path, runtime: dict[str, Any] | None = None) -> dic
 
 
 def resume(root: Path) -> dict[str, Any]:
-    return _normalize_report(root, _ORIGINALS["resume"](root), closure_check=False)
+    hook = ensure_commit_hook(root)
+    result = _normalize_report(root, _ORIGINALS["resume"](root), closure_check=False)
+    if isinstance(result, dict):
+        result["commit_hook"] = hook
+    return result
