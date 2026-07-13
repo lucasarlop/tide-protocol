@@ -9,6 +9,7 @@ from .guardrails import install as _install_guardrails
 from .maintenance import install as _install_maintenance
 from .model_policy import install as _install_model_policy
 from .segmentation import install as _install_segmentation
+from .session_stability import install as _install_session_stability
 from .stability import install as _install_stability
 from .stability_fixes import install as _install_stability_fixes
 from .v1 import install as _install_v1
@@ -24,6 +25,7 @@ _install_model_policy(_core)
 _install_maintenance(_core)
 _install_stability(_core)
 _install_stability_fixes(_core)
+_install_session_stability(_core)
 
 from .mcp_model_policy import install as _install_mcp_model_policy
 
@@ -53,6 +55,7 @@ del (
     _install_maintenance,
     _install_stability,
     _install_stability_fixes,
+    _install_session_stability,
     _install_mcp_model_policy,
     _install_mcp_maintenance,
     _install_mcp_stability,
