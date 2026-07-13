@@ -280,22 +280,38 @@ def commit_check(root: Path) -> dict[str, Any]:
     if proof is None:
         return result
 
+    quality = check(root)
+    ignored = {
+        _COMMIT_REVIEW_BLOCKER,
+        _COMMIT_FINGERPRINT_BLOCKER,
+        _BUDGET_BLOCKER,
+        *_REVIEW_BLOCKERS,
+    }
     blockers = [
         str(blocker)
         for blocker in result.get("blockers", [])
-        if str(blocker) not in {_COMMIT_REVIEW_BLOCKER, _COMMIT_FINGERPRINT_BLOCKER}
+        if str(blocker) not in ignored
     ]
+    for blocker in quality.get("blockers", []):
+        text = str(blocker)
+        if text and text not in blockers:
+            blockers.append(text)
     blockers = list(dict.fromkeys(blockers))
-    pending = list(result.get("pending_hardgates", []))
-    allowed = not blockers and bool(result.get("check_ready")) and not pending
+    pending = list(quality.get("pending_hardgates", result.get("pending_hardgates", [])))
+    check_ready = bool(quality.get("ready"))
+    allowed = not blockers and check_ready and not pending
     result["blockers"] = blockers
     result["allowed"] = allowed
     result["review_id"] = proof.get("review_id")
+    result["pending_hardgates"] = pending
+    result["check_ready"] = check_ready
     result["agent_should_continue"] = not allowed and not bool(result.get("user_action_required"))
     if allowed:
         result["next_action"] = "commit may proceed; run tide check again after the commit"
     elif blockers:
         result["next_action"] = str(
-            result.get("next_action") or "resolve the Tide blockers before committing"
+            quality.get("next_action")
+            or result.get("next_action")
+            or "resolve the Tide blockers before committing"
         )
     return result
