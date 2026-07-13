@@ -4,13 +4,25 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable
 
-from .project import diff_fingerprint, load_runtime, save_runtime
+from .project import (
+    TideError,
+    diff_fingerprint,
+    file_fingerprints,
+    load_runtime,
+    save_runtime,
+)
 from .stability import ensure_commit_hook
 
 _CORE: ModuleType | None = None
 _ORIGINALS: dict[str, Callable[..., Any]] = {}
 _BUDGET_GATE = "extended_investigation"
 _BUDGET_BLOCKER = "task must be split or extended investigation explicitly authorized"
+_REVIEW_BLOCKERS = {
+    "independent review required",
+    "independent review is stale for the current diff",
+}
+_COMMIT_REVIEW_BLOCKER = "current task has no approved independent review"
+_COMMIT_FINGERPRINT_BLOCKER = "current worktree fingerprint is not the approved fingerprint"
 
 
 def install(core: ModuleType) -> None:
@@ -18,13 +30,23 @@ def install(core: ModuleType) -> None:
     if getattr(core, "_stability_fixes_installed", False):
         return
     _CORE = core
-    for name in ("reopen", "authorize", "check", "preparation_report", "resume"):
+    for name in (
+        "split",
+        "reopen",
+        "authorize",
+        "check",
+        "preparation_report",
+        "resume",
+        "commit_check",
+    ):
         _ORIGINALS[name] = getattr(core, name)
+    core.split = split
     core.reopen = reopen
     core.authorize = authorize
     core.check = check
     core.preparation_report = preparation_report
     core.resume = resume
+    core.commit_check = commit_check
     core._stability_fixes_installed = True
 
 
@@ -38,11 +60,45 @@ def _task_files(root: Path, runtime: dict[str, Any]) -> list[str]:
     return list(_core()._task_files(root, runtime))
 
 
-def _approved_current(root: Path, runtime: dict[str, Any]) -> bool:
+def _current_fingerprint(root: Path, runtime: dict[str, Any]) -> str:
+    return diff_fingerprint(root, _task_files(root, runtime))
+
+
+def _compatible_receipt(root: Path, runtime: dict[str, Any]) -> dict[str, Any] | None:
+    task_files = _task_files(root, runtime)
+    if not task_files:
+        return None
+    current = file_fingerprints(root, task_files)
+    for receipt in reversed(runtime.get("segment_receipts", [])):
+        if not isinstance(receipt, dict) or not receipt.get("review_id"):
+            continue
+        expected = receipt.get("files")
+        if not isinstance(expected, dict):
+            continue
+        normalized = {str(path): str(value) for path, value in expected.items()}
+        if set(normalized) == set(task_files) and normalized == current:
+            return {
+                "type": "segment_receipt",
+                "review_id": receipt.get("review_id"),
+                "segment_id": receipt.get("segment_id"),
+            }
+    return None
+
+
+def _approval_proof(root: Path, runtime: dict[str, Any]) -> dict[str, Any] | None:
     review = runtime.get("review") if isinstance(runtime.get("review"), dict) else {}
     approved = str(runtime.get("approved_fingerprint") or "")
-    current = diff_fingerprint(root, _task_files(root, runtime))
-    return bool(review.get("approved")) and bool(approved) and approved == current
+    if review.get("approved") and approved and approved == _current_fingerprint(root, runtime):
+        return {
+            "type": "current_review",
+            "review_id": review.get("review_id"),
+            "segment_id": runtime.get("segment_id"),
+        }
+    return _compatible_receipt(root, runtime)
+
+
+def _approved_current(root: Path, runtime: dict[str, Any]) -> bool:
+    return _approval_proof(root, runtime) is not None
 
 
 def _strip_budget_gate(root: Path, runtime: dict[str, Any]) -> bool:
@@ -84,8 +140,16 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
     if not isinstance(value, dict):
         return value
     runtime = load_runtime(root)
-    if not runtime or not _approved_current(root, runtime):
+    if not runtime:
         return value
+    proof = _approval_proof(root, runtime)
+    value["approval_proof"] = proof
+    if proof is None:
+        if closure_check:
+            value["commit_ready"] = False
+            value["commit_blockers"] = ["no compatible approval proof"]
+        return value
+
     _strip_budget_gate(root, runtime)
     runtime = load_runtime(root)
     pending = _pending(runtime)
@@ -96,7 +160,7 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
         blockers = [
             str(blocker)
             for blocker in value.get("blockers", [])
-            if str(blocker) != _BUDGET_BLOCKER
+            if str(blocker) != _BUDGET_BLOCKER and str(blocker) not in _REVIEW_BLOCKERS
         ]
         blockers = list(dict.fromkeys(blockers))
         ready = not blockers and not pending
@@ -106,6 +170,8 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
         value["primary_blocker"] = blockers[0] if blockers else None
         value["ready"] = ready
         value["status"] = runtime["status"]
+        value["commit_ready"] = ready
+        value["commit_blockers"] = [] if ready else blockers
         if ready:
             value["next_action"] = "closure ready"
         _normalize_nested_resume(value, pending, ready=ready)
@@ -114,6 +180,16 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
             value["next_action"] = "closure ready"
         _normalize_nested_resume(value, pending, ready=not pending)
     return value
+
+
+def split(root: Path, *, task: str, files: list[str]) -> dict[str, Any]:
+    runtime = load_runtime(root)
+    if runtime and _approval_proof(root, runtime) is not None:
+        raise TideError(
+            "split not required: the current fingerprint already has compatible approval; "
+            "proceed to commit_check, or use reopen(code_change_required=true) before further edits"
+        )
+    return _ORIGINALS["split"](root, task=task, files=files)
 
 
 def reopen(
@@ -191,4 +267,35 @@ def resume(root: Path) -> dict[str, Any]:
     result = _normalize_report(root, _ORIGINALS["resume"](root), closure_check=False)
     if isinstance(result, dict):
         result["commit_hook"] = hook
+    return result
+
+
+def commit_check(root: Path) -> dict[str, Any]:
+    result = _ORIGINALS["commit_check"](root)
+    runtime = load_runtime(root)
+    if not runtime or not isinstance(result, dict):
+        return result
+    proof = _approval_proof(root, runtime)
+    result["approval_proof"] = proof
+    if proof is None:
+        return result
+
+    blockers = [
+        str(blocker)
+        for blocker in result.get("blockers", [])
+        if str(blocker) not in {_COMMIT_REVIEW_BLOCKER, _COMMIT_FINGERPRINT_BLOCKER}
+    ]
+    blockers = list(dict.fromkeys(blockers))
+    pending = list(result.get("pending_hardgates", []))
+    allowed = not blockers and bool(result.get("check_ready")) and not pending
+    result["blockers"] = blockers
+    result["allowed"] = allowed
+    result["review_id"] = proof.get("review_id")
+    result["agent_should_continue"] = not allowed and not bool(result.get("user_action_required"))
+    if allowed:
+        result["next_action"] = "commit may proceed; run tide check again after the commit"
+    elif blockers:
+        result["next_action"] = str(
+            result.get("next_action") or "resolve the Tide blockers before committing"
+        )
     return result
