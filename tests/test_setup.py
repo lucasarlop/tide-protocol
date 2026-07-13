@@ -26,6 +26,7 @@ def test_opencode_jsonc_is_preserved_and_extended(tmp_path: Path) -> None:
     assert result["permission"]["bash"] == "ask"
     assert result["permission"]["tide_authorize"] == "ask"
     assert result["permission"]["tide_validate"] == "allow"
+    assert result["permission"]["tide_commit_check"] == "allow"
     assert str(bootstrap) in result["instructions"]
     assert result["mcp"]["tide"]["command"] == ["tide", "mcp", "serve"]
     assert result["mcp"]["code-review-graph"]["command"] == ["/usr/bin/code-review-graph", "serve"]
