@@ -139,7 +139,7 @@ def reopen(
     runtime["split_reasons"] = []
     runtime["extended_investigation_grant"] = None
     save_runtime(root, runtime)
-    return _ORIGINALS["preparation_report"](root, runtime)
+    return _normalize_report(root, result, closure_check=False)
 
 
 def authorize(
