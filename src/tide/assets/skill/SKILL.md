@@ -48,6 +48,8 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Use `revise` only inside current segment.
 - Changing the required-validation plan preserves passing evidence whose file fingerprints are still current.
 - Use `split` when scope stops converging. Approved parent segments become receipts automatically.
+- Do not split an already approved fingerprint into a child that contains all current task files. Proceed to `commit_check`; use `reopen(code_change_required=true)` before further edits.
+- A compatible approved segment receipt is valid review evidence only while its exact file fingerprints still match the current child boundary.
 - Do not acknowledge parent-segment files manually.
 - When a verified defect in approved code requires edits, call `reopen` with `code_change_required=true`. Do not edit until the `closure_reopen` permission prompt is authorized.
 - Use ordinary `reopen` only for operational verification of unchanged approved code.
