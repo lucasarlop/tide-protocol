@@ -13,7 +13,7 @@ authors = [{name = "Lucas Lopes"}]
 dependencies = []
 
 [project.scripts]
-tide = "tide.cli:main"
+tide = "tide.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tide"]
