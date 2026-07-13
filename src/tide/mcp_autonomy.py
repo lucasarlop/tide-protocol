@@ -14,6 +14,8 @@ Validation, review, blocker correction, and local operational verification are a
 When a Tide result contains authorization_request, call authorize with exactly those gates. The client permission prompt is the user interaction; do not replace it with a vague prose request.
 Only stop for user input when user_action_required=true, the user denies the permission prompt, a genuine requirement choice remains, or an external dependency makes progress impossible.
 When agent_should_continue=true, continue to the exact next_action before producing a final response.
+A failed validation is not a stopping point. Read failure_summary or validation_log, fix the cause, and rerun only the smallest affected validation.
+The Tide reviewer submits its own verdict. When review_packet returns writer_must_not_resubmit=true, do not call review_submit from the writer after the reviewer task completes.
 """.strip()
 
 _ENRICHED_TOOLS = {
@@ -23,6 +25,11 @@ _ENRICHED_TOOLS = {
     "reopen",
     "authorize",
     "check",
+    "validate",
+    "validation_status",
+    "validation_wait",
+    "review_packet",
+    "review_submit",
     "resume",
     "handoff",
     "status",
@@ -40,6 +47,14 @@ def tool_summary(name: str, value: Any) -> str:
     base = _ORIGINAL_SUMMARY(name, value)
     if not isinstance(value, dict) or name not in _ENRICHED_TOOLS:
         return base
+
+    log_id = value.get("log_id")
+    failure = value.get("failure_summary")
+    if log_id and name in {"validate", "validation_status", "validation_wait"}:
+        base = f"{base}; log={log_id}"
+    if isinstance(failure, list) and failure:
+        base = f"{base}; failure={str(failure[0])[:180]}"
+
     if value.get("user_action_required"):
         request = value.get("authorization_request") or {}
         arguments = request.get("arguments") if isinstance(request, dict) else {}
