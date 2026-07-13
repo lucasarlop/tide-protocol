@@ -13,6 +13,7 @@ from tide.core import (
     prepare,
     record_validation,
     reopen,
+    resume,
     submit_review,
 )
 from tide.project import load_runtime, save_runtime
@@ -197,6 +198,18 @@ def test_commit_hook_is_managed_and_preserves_existing_shell_hook(tmp_path: Path
     assert "echo existing" in text
     assert text.count("# tide:commit-gate:start") == 1
     assert hook.stat().st_mode & 0o111
+
+
+def test_resume_installs_managed_commit_hook(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "change local helper", ["app.py"])
+
+    report = resume(root)
+    hook = Path(str(report["commit_hook"]["path"]))
+
+    assert report["commit_hook"]["installed"] is True
+    assert hook.exists()
+    assert "tide commit-check --hook" in hook.read_text(encoding="utf-8")
 
 
 def test_managed_hook_blocks_real_commit_until_new_fingerprint_is_approved(tmp_path: Path) -> None:
