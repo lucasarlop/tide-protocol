@@ -44,10 +44,14 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Use targeted validation during implementation with precise `covers`.
 - Long command: `background=true`, then `validation_wait`. Never use shell `sleep` to poll.
 - Never duplicate a running validation.
+- A failed validation is autonomous work, not a stopping point. Read `failure_summary` or call `validation_log`, fix the cause, and rerun only the smallest affected validation.
+- `validation_log` accepts either the returned `log_id` or the original `validation_id`.
 - After a command fails because an executable, path, or environment is missing, inspect the environment and change the command. Never repeat the identical structural failure.
 - Use `revise` only inside current segment.
+- When replacing a narrow mandatory command with a broader suite, add the broader command and remove the narrow command in the same `revise`. Tide also prunes commands covered by a broader directory validation.
 - Changing the required-validation plan preserves passing evidence whose file fingerprints are still current.
 - Use `split` when scope stops converging. Approved parent segments become receipts automatically.
+- Compatible passing validation evidence is narrowed and inherited by a child split when every child file fingerprint still matches.
 - Do not split an already approved fingerprint into a child that contains all current task files. Proceed to `commit_check`; use `reopen(code_change_required=true)` before further edits.
 - A compatible approved segment receipt is valid review evidence only while its exact file fingerprints still match the current child boundary.
 - Do not acknowledge parent-segment files manually.
@@ -62,12 +66,13 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Only `blocking` findings stay in current task. Record `follow_up`; do not implement it automatically.
 - Never dump full review history or raw diff unless needed.
 - A required review is work for the agent, not a user authorization gate. Generate the packet and run the returned reviewer automatically.
+- The reviewer calls `review_submit` directly. When `writer_must_not_resubmit=true`, the writer must consume the reviewer result and continue; do not submit the same verdict again.
 
 ## Validate and close
 
 - Targeted validation after each blocker fix.
 - Final validation once per fingerprint. Tide reuses current final evidence.
-- Mandatory commands are matched semantically: shell wrappers such as `zsh -lc` do not invalidate equivalent evidence.
+- Mandatory commands are matched semantically: shell wrappers and broader directory suites may satisfy equivalent narrower commands.
 - Read `missing_required_validations` and `uncovered_validation_files` from `status` or `check`; do not guess which command is missing.
 - A required validation is work for the agent, not a user authorization gate. Run it automatically unless it has external cost, production impact, or destructive effects.
 - Rebuild, restart, health, worker, queue, and smoke checks use `operational_verify`; they do not reopen code review.
@@ -100,6 +105,7 @@ Patterns:
 
 - Model: `Tide recommends Terra medium for this bounded implementation. No switch needed during validation.`
 - Progress: `Targeted tests passed. Review found one blocker in executor.py.`
+- Validation failure: `Validation failed in test_executor.py::test_cancel. Fixing that case and rerunning only the affected test.`
 - Authorization: call `authorize`; let the client display the permission prompt.
 - Finding: `BLOCKING — executor.py:80 — missing handler does not cancel successors.`
 - Commit gate: `commit_check blocked because the current fingerprint is not approved. Continuing with validation and review.`
