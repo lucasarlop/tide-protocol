@@ -118,6 +118,10 @@ def test_code_reopen_requires_gate_then_unlocks_new_review_cycle(tmp_path: Path)
     prepare(root, "change local helper", ["app.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     approve_current(root, ["app.py"])
+    runtime = load_runtime(root)
+    runtime["workflow_metrics"]["scope_expansions"] = 9
+    runtime["workflow_metrics"]["validation_runs"] = 17
+    save_runtime(root, runtime)
 
     pending = reopen(
         root,
@@ -137,6 +141,8 @@ def test_code_reopen_requires_gate_then_unlocks_new_review_cycle(tmp_path: Path)
     assert runtime["approved_fingerprint"] is None
     assert runtime["closure_locked"] is False
     assert "closure_reopen" not in runtime["hardgates"]
+    assert runtime["workflow_metrics"]["scope_expansions"] == 0
+    assert runtime["workflow_metrics"]["validation_runs"] == 0
 
 
 def test_default_reopen_keeps_unchanged_approved_code_operational(tmp_path: Path) -> None:
@@ -151,12 +157,14 @@ def test_default_reopen_keeps_unchanged_approved_code_operational(tmp_path: Path
     assert report["closure_locked"] is True
 
 
-def test_approved_fingerprint_is_not_blocked_by_review_budget_gate(tmp_path: Path) -> None:
+def test_approved_fingerprint_is_not_blocked_by_real_review_budget(tmp_path: Path) -> None:
     root = make_repo(tmp_path)
     prepare(root, "change local helper", ["app.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     approve_current(root, ["app.py"])
     runtime = load_runtime(root)
+    runtime["workflow_metrics"]["review_cycles"] = 99
+    runtime["workflow_metrics"]["review_attempts"] = 99
     runtime["hardgates"] = sorted(
         set(runtime.get("hardgates", [])) | {"extended_investigation"}
     )
@@ -167,6 +175,7 @@ def test_approved_fingerprint_is_not_blocked_by_review_budget_gate(tmp_path: Pat
     report = check(root)
 
     assert "extended_investigation" not in report["pending_hardgates"]
+    assert "task must be split or extended investigation explicitly authorized" not in report["blockers"]
     assert report["split_required"] is False
     assert report["ready"] is True
 
@@ -188,3 +197,28 @@ def test_commit_hook_is_managed_and_preserves_existing_shell_hook(tmp_path: Path
     assert "echo existing" in text
     assert text.count("# tide:commit-gate:start") == 1
     assert hook.stat().st_mode & 0o111
+
+
+def test_managed_hook_blocks_real_commit_until_new_fingerprint_is_approved(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    ensure_commit_hook(root)
+    prepare(root, "change local helper", ["app.py"])
+    (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    approve_current(root, ["app.py"])
+    (root / "app.py").write_text("VALUE = 3\n", encoding="utf-8")
+    git(root, "add", "app.py")
+
+    blocked = git(root, "commit", "-m", "must not commit", check=False)
+
+    assert blocked.returncode != 0
+    assert "Tide blocked this commit" in blocked.stderr
+    assert git(root, "rev-parse", "--short", "HEAD").stdout.strip() != ""
+
+    approve_current(root, ["app.py"])
+    git(root, "add", "app.py")
+    committed = git(root, "commit", "-m", "approved change", check=False)
+
+    assert committed.returncode == 0, committed.stderr
+    report = check(root)
+    assert report["lifecycle"] == "committed"
+    assert report["ready"] is True
