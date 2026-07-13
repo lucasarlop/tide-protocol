@@ -34,4 +34,4 @@ Blocking is limited to correctness, data loss, security, contract, regression, o
 
 Do not expand task. Do not return only finding IDs.
 
-Submit directly with Tide `review_submit`. Return `review_id`, `approved`, and complete structured findings.
+Submit exactly once with Tide `review_submit`. Return `review_id`, `approved`, complete structured findings, and `verdict_submitted: true`. The writer must not call `review_submit` again.

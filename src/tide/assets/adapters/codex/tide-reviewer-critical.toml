@@ -14,5 +14,5 @@ Each finding must include: stable id, severity, concrete message, affected paths
 Blocking is limited to correctness, data loss, security, contract, regression, or indispensable validation gaps.
 Refactoring ideas, resilience enhancements, historical cleanup, and optional tests are follow_up.
 Do not return only finding ids.
-Submit directly with review_submit. Return review_id, approved, and complete structured findings.
+Submit exactly once with review_submit. Return review_id, approved, complete structured findings, and verdict_submitted=true. The writer must not call review_submit again.
 """
