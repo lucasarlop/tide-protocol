@@ -14,6 +14,7 @@ def test_mcp_exposes_tide_1_1_quality_surface() -> None:
         "model_policy",
         "context",
         "check",
+        "commit_check",
         "validate",
         "validation_status",
         "validation_wait",
@@ -35,6 +36,7 @@ def test_mcp_exposes_tide_1_1_quality_surface() -> None:
     assert "Caveman-lite" in INSTRUCTIONS
     assert "model_policy" in INSTRUCTIONS
     assert "xhigh" in INSTRUCTIONS
+    assert "commit_check" in INSTRUCTIONS
 
 
 def test_mcp_model_policy_schema_exposes_only_supported_controls() -> None:
