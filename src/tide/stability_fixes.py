@@ -185,10 +185,16 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
 def split(root: Path, *, task: str, files: list[str]) -> dict[str, Any]:
     runtime = load_runtime(root)
     if runtime and _approval_proof(root, runtime) is not None:
-        raise TideError(
-            "split not required: the current fingerprint already has compatible approval; "
-            "proceed to commit_check, or use reopen(code_change_required=true) before further edits"
-        )
+        current_files = set(_task_files(root, runtime))
+        target = sorted(dict.fromkeys(str(item).strip() for item in files if str(item).strip()))
+        selected = {
+            path for path in current_files if any(_core()._inside(path, [candidate]) for candidate in target)
+        }
+        if current_files and selected == current_files:
+            raise TideError(
+                "split not required: the current fingerprint already has compatible approval; "
+                "proceed to commit_check, or use reopen(code_change_required=true) before further edits"
+            )
     return _ORIGINALS["split"](root, task=task, files=files)
 
 
