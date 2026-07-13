@@ -14,9 +14,10 @@ from tide.core import (
     record_validation,
     reopen,
     resume,
+    split,
     submit_review,
 )
-from tide.project import load_runtime, save_runtime
+from tide.project import TideError, file_fingerprints, load_runtime, save_runtime
 
 
 def git(root: Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -74,6 +75,7 @@ def test_commit_check_allows_only_current_approved_staged_delta(tmp_path: Path) 
     assert report["allowed"] is True
     assert report["blockers"] == []
     assert report["staged_files"] == ["app.py"]
+    assert report["approval_proof"]["type"] == "current_review"
 
 
 def test_commit_check_blocks_edit_after_review(tmp_path: Path) -> None:
@@ -112,6 +114,58 @@ def test_commit_check_rejects_partial_or_outside_staging(tmp_path: Path) -> None
     assert report["allowed"] is False
     assert report["outside_staged_files"] == ["note.md"]
     assert report["unstaged_task_files"] == ["ui.ts"]
+
+
+def test_split_rejects_currently_approved_fingerprint(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "change local helper", ["app.py"])
+    (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    approve_current(root, ["app.py"])
+
+    try:
+        split(root, task="finalize approved helper", files=["app.py"])
+    except TideError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("approved fingerprint split should have been rejected")
+
+    assert "split not required" in message
+    assert "commit_check" in message
+
+
+def test_compatible_segment_receipt_recovers_commit_gate(tmp_path: Path) -> None:
+    root = make_repo(tmp_path)
+    prepare(root, "change local helper", ["app.py"])
+    (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    approve_current(root, ["app.py"])
+    runtime = load_runtime(root)
+    review = dict(runtime["review"])
+    runtime["segment_receipts"] = [
+        {
+            "segment_id": runtime.get("segment_id"),
+            "segment_index": runtime.get("segment_index"),
+            "task": runtime.get("task"),
+            "boundary": list(runtime.get("boundary", [])),
+            "files": file_fingerprints(root, ["app.py"]),
+            "review_id": review.get("review_id"),
+            "approved_at": review.get("created_at"),
+        }
+    ]
+    runtime["review"] = None
+    runtime["lifecycle"] = "active"
+    save_runtime(root, runtime)
+    git(root, "add", "app.py")
+
+    quality = check(root)
+    report = commit_check(root)
+
+    assert quality["ready"] is True
+    assert quality["commit_ready"] is True
+    assert quality["approval_proof"]["type"] == "segment_receipt"
+    assert report["allowed"] is True
+    assert report["blockers"] == []
+    assert report["approval_proof"]["type"] == "segment_receipt"
+    assert report["review_id"] == review.get("review_id")
 
 
 def test_code_reopen_requires_gate_then_unlocks_new_review_cycle(tmp_path: Path) -> None:
