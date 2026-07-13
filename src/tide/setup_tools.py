@@ -126,6 +126,7 @@ def _merge_opencode(path: Path, *, bootstrap_path: Path, graph_command: str | No
         raise TideError('OpenCode `permission` must be an object')
     permission['tide_authorize'] = 'ask'
     permission['tide_validate'] = 'allow'
+    permission['tide_commit_check'] = 'allow'
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
 
 def _normalize_jsonc(text: str) -> str:
