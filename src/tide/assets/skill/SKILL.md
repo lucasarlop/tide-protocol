@@ -49,6 +49,8 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - Changing the required-validation plan preserves passing evidence whose file fingerprints are still current.
 - Use `split` when scope stops converging. Approved parent segments become receipts automatically.
 - Do not acknowledge parent-segment files manually.
+- When a verified defect in approved code requires edits, call `reopen` with `code_change_required=true`. Do not edit until the `closure_reopen` permission prompt is authorized.
+- Use ordinary `reopen` only for operational verification of unchanged approved code.
 
 ## Review
 
@@ -68,6 +70,10 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 - A required validation is work for the agent, not a user authorization gate. Run it automatically unless it has external cost, production impact, or destructive effects.
 - Rebuild, restart, health, worker, queue, and smoke checks use `operational_verify`; they do not reopen code review.
 - `check` is source of truth. Read exact blocker and next action. Never guess.
+- Before every `git commit`, call `commit_check`. A user request to commit authorizes the Git action but never bypasses validation, review, hardgates, or fingerprint checks.
+- Commit only when `commit_check.allowed=true`. Stage exactly the current Tide task files.
+- Never use `git commit --no-verify`; the managed pre-commit hook is a safety backstop.
+- After the commit, call `check` again so Tide records the committed lifecycle.
 - A commit matching approved files closes cleanly; do not request another review.
 - Never commit, push, merge, deploy, or delete data without explicit or prior user authorization.
 - Only produce a final response when Tide is ready, the user denied an authorization prompt, a genuine requirement decision remains, or an external dependency makes progress impossible.
@@ -76,6 +82,7 @@ Autonomy by default. Evidence proportional. Model effort proportional. Output mi
 
 - Tide continuously saves compact resume state.
 - In a genuinely new session, call `resume` and continue from task, segment, blockers, evidence, next action, and model policy.
+- `resume` installs or refreshes the managed Tide pre-commit hook when the repository hook is compatible.
 - `handoff` is optional: use when user asks, when moving to another agent, or before ending a saturated session.
 - Restoring an old conversation is not a handoff and does not reduce context.
 
@@ -93,5 +100,6 @@ Patterns:
 - Progress: `Targeted tests passed. Review found one blocker in executor.py.`
 - Authorization: call `authorize`; let the client display the permission prompt.
 - Finding: `BLOCKING — executor.py:80 — missing handler does not cancel successors.`
+- Commit gate: `commit_check blocked because the current fingerprint is not approved. Continuing with validation and review.`
 - Question: `Reset deletes 773 partial rows for service 226. Reset only this service?`
 - Final: `Implemented. Tests passed. Review approved. Tide ready. Not committed.`
