@@ -3,6 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+from tide import mcp
 from tide.core import (
     create_review_packet,
     get_review_packet,
@@ -11,7 +12,6 @@ from tide.core import (
     revise,
     split,
     start_validation,
-    submit_review,
     validation_log,
     validation_wait,
 )
@@ -144,7 +144,7 @@ def test_validation_wait_returns_log_and_failure_summary(tmp_path: Path) -> None
     assert "AssertionError" in by_job_id["content"]
 
 
-def test_duplicate_review_submission_is_idempotent(tmp_path: Path) -> None:
+def test_duplicate_review_submission_is_idempotent_only_through_mcp(tmp_path: Path, monkeypatch) -> None:
     root = make_repo(tmp_path)
     prepare(root, "change helper", ["app.py"])
     (root / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
@@ -170,9 +170,10 @@ def test_duplicate_review_submission_is_idempotent(tmp_path: Path) -> None:
             }
         ],
     }
+    monkeypatch.chdir(root)
 
-    first = submit_review(root, **arguments)
-    second = submit_review(root, **arguments)
+    first = mcp.call_tool("review_submit", arguments)
+    second = mcp.call_tool("review_submit", arguments)
 
     assert first["verdict_submitted"] is True
     assert first["idempotent"] is False
