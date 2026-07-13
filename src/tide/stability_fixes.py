@@ -17,8 +17,9 @@ def install(core: ModuleType) -> None:
     if getattr(core, "_stability_fixes_installed", False):
         return
     _CORE = core
-    for name in ("authorize", "check", "preparation_report", "resume"):
+    for name in ("reopen", "authorize", "check", "preparation_report", "resume"):
         _ORIGINALS[name] = getattr(core, name)
+    core.reopen = reopen
     core.authorize = authorize
     core.check = check
     core.preparation_report = preparation_report
@@ -112,6 +113,33 @@ def _normalize_report(root: Path, value: Any, *, closure_check: bool) -> Any:
             value["next_action"] = "closure ready"
         _normalize_nested_resume(value, pending, ready=not pending)
     return value
+
+
+def reopen(
+    root: Path,
+    *,
+    reason: str,
+    code_change_required: bool = False,
+) -> dict[str, Any]:
+    result = _ORIGINALS["reopen"](
+        root,
+        reason=reason,
+        code_change_required=code_change_required,
+    )
+    if not code_change_required:
+        return result
+    runtime = load_runtime(root)
+    hardgates = set(runtime.get("hardgates", []))
+    authorized = set(runtime.get("authorized_hardgates", []))
+    hardgates.discard(_BUDGET_GATE)
+    authorized.discard(_BUDGET_GATE)
+    runtime["hardgates"] = sorted(hardgates)
+    runtime["authorized_hardgates"] = sorted(authorized & hardgates)
+    runtime["split_required"] = False
+    runtime["split_reasons"] = []
+    runtime["extended_investigation_grant"] = None
+    save_runtime(root, runtime)
+    return _ORIGINALS["preparation_report"](root, runtime)
 
 
 def authorize(
