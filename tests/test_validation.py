@@ -67,8 +67,23 @@ def test_failed_validation_returns_saved_log(repo: Path) -> None:
     (repo / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
     result = record_validation(repo, [sys.executable, "-c", "print('FAILED demo'); raise AssertionError('boom')"])
     assert result["passed"] is False
+    assert result["failure_summary"]
+    assert result["agent_should_continue"] is True
     payload = validation_log(repo, result["log_id"])
     assert "AssertionError" in payload["content"]
+
+
+def test_second_synchronous_failure_switches_to_investigation(repo: Path) -> None:
+    prepare(repo, "hard fix", ["app.py"])
+    (repo / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+    command = [sys.executable, "-c", "print('FAILED demo'); raise AssertionError('boom')"]
+    first = record_validation(repo, command)
+    second = record_validation(repo, command)
+
+    assert first["next_action"].startswith("inspect the saved failure summary")
+    assert second["convergence"]["status"] == "investigating"
+    assert second["next_action"].startswith("stop editing")
+    assert second["agent_should_continue"] is True
 
 
 def test_background_validation_wait_returns_log_and_summary(repo: Path) -> None:
