@@ -51,30 +51,41 @@ def runtime_path(root: Path) -> Path:
     return runtime_dir(root) / "current.json"
 
 
-def read_json(path: Path, default: Any) -> Any:
+def read_json(path: Path, default: Any, *, strict: bool = False) -> Any:
     if not path.exists():
         return default
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except (OSError, json.JSONDecodeError) as exc:
+        if strict:
+            raise TideError(f"invalid JSON at {path}: {exc}") from exc
         return default
 
 
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     try:
-        path.chmod(0o600)
+        temporary.chmod(0o600)
     except OSError:
         pass
+    temporary.replace(path)
 
 
 def load_runtime(root: Path) -> dict[str, Any]:
-    return read_json(runtime_path(root), {})
+    from .state import load_state
+
+    return load_state(root)
 
 
 def save_runtime(root: Path, value: dict[str, Any]) -> None:
-    write_json(runtime_path(root), value)
+    from .state import save_state
+
+    save_state(root, value)
 
 
 def changed_files(root: Path) -> list[str]:

@@ -101,6 +101,8 @@ def _remove_opencode_entries(path: Path, *, bootstrap_path: Path) -> None:
     if isinstance(permission, dict):
         permission.pop('tide_authorize', None)
         permission.pop('tide_validate', None)
+        permission.pop('tide_validation_wait', None)
+        permission.pop('tide_commit_check', None)
         if not permission:
             config.pop('permission', None)
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
