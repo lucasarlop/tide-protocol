@@ -12,6 +12,7 @@ from .rules import _inside, _normalize_strings, _task_files, evaluate_state
 from .state import now_iso
 from .validation_jobs import compact_job, read_job, refresh_job, save_job, start_job
 
+
 def record_validation(
     root: Path,
     command: list[str],
@@ -31,7 +32,8 @@ def record_validation(
         if reusable:
             return {**reusable, "reused": True}
     result = run_validation(root, command, timeout=timeout)
-    return _record_validation_result(root, state, result, files=files, phase=phase)
+    evidence = _record_validation_result(root, state, result, files=files, phase=phase)
+    return _enrich_validation_result(root, {**evidence, "status": "completed"})
 
 
 def start_validation(
@@ -202,7 +204,12 @@ def _record_validation_result(
     return evidence
 
 
-def _reusable_final(root: Path, state: dict[str, Any], command: list[str], files: list[str]) -> dict[str, Any] | None:
+def _reusable_final(
+    root: Path,
+    state: dict[str, Any],
+    command: list[str],
+    files: list[str],
+) -> dict[str, Any] | None:
     for item in reversed(state.get("validations", [])):
         if item.get("phase") != "final" or list(item.get("command") or []) != list(command):
             continue
@@ -237,25 +244,24 @@ def _enrich_validation_result(root: Path, value: dict[str, Any]) -> dict[str, An
                 "user_action_required": False,
             }
         )
-    elif status == "completed" and not bool(result.get("passed")):
+        return result
+
+    if status == "completed" and not bool(result.get("passed")):
         log_id = result.get("log_id")
         if log_id:
             payload = read_validation_log(root, str(log_id))
             result["failure_summary"] = _failure_summary(str(payload.get("content") or ""))
-        result.update(
-            {
-                "next_action": "inspect the failure summary, fix the cause, and rerun only the smallest affected validation",
-                "agent_should_continue": True,
-                "user_action_required": False,
-            }
-        )
-    elif status == "completed":
+
+    if status == "completed":
         evaluation = evaluate_state(root)
         result.update(
             {
                 "next_action": evaluation.get("next_action"),
                 "agent_should_continue": evaluation.get("agent_should_continue"),
                 "user_action_required": evaluation.get("user_action_required"),
+                "authorization_request": evaluation.get("authorization_request"),
+                "decision_request": evaluation.get("decision_request"),
+                "convergence": evaluation.get("convergence"),
             }
         )
     return result
