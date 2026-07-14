@@ -5,19 +5,20 @@ import sys
 from typing import Any
 from urllib.parse import urlparse
 
-from .artifacts import list_review_resources
-from .context import query_context
+from . import __version__
+from .artifacts import list_review_resources, read_review_packet
 from .core import (
+    abandon,
     authorize,
     check,
+    commit_check,
+    convergence,
     create_review_packet,
     external_acknowledge,
     get_review_packet,
     handoff,
     operational_verify,
     prepare,
-    preparation_report,
-    record_validation,
     reopen,
     resume,
     revise,
@@ -27,22 +28,13 @@ from .core import (
     validation_log,
     validation_status,
     validation_wait,
+    record_validation,
 )
-from .locks import load_locks, render_draft
+from .model_policy import model_policy
 from .project import TideError, project_root
+from .protocol import WRITER_INSTRUCTIONS
 
-INSTRUCTIONS = """Tide 1.0 keeps code work autonomous, bounded, concise, and resumable.
-Call prepare before editing and check before completion.
-Use trusted autonomy: continue routine reads, edits, targeted tests, blocker fixes, split, local rebuilds, and health checks without asking permission. Ask one concise question only for a real requirement choice, destructive data change, production action, external cost, or an irreversible Git action not already authorized.
-Use targeted validations while implementing. Run final validation once per fingerprint; Tide reuses current final evidence automatically.
-Use background validation plus validation_wait. Never run shell sleep for polling.
-Reviews are incremental after the first compatible review. An approved fingerprint is immutable and cannot be reviewed again without a real code or boundary change.
-Use operational_verify for rebuild, restart, health, worker, queue, and smoke checks. Operational checks never reopen code review.
-Use split for a smaller child segment. Approved parent segments become receipts and do not need external acknowledgements.
-Findings need stable id, severity, message, paths, and expected_action. Only blocking findings stay in the task.
-Tide keeps a compact resume checkpoint automatically. Use resume in a fresh session; handoff is an optional explicit snapshot.
-Communicate in professional Caveman-lite style: no filler, no routine tool narration, no raw log dumps. Keep code, commands, paths, and error strings exact. Use normal prose for risk, ambiguity, and irreversible actions.
-Never commit, push, merge, deploy, or delete data without explicit or prior user authorization."""
+INSTRUCTIONS = WRITER_INSTRUCTIONS
 
 
 def _schema(properties: dict[str, Any] | None = None, required: list[str] | None = None) -> dict[str, Any]:
@@ -54,47 +46,37 @@ def _schema(properties: dict[str, Any] | None = None, required: list[str] | None
 
 def _finding_schema() -> dict[str, Any]:
     return {
-        "oneOf": [
-            {"type": "string"},
-            {
-                "type": "object",
-                "properties": {
-                    "id": {"type": "string"},
-                    "severity": {"type": "string", "enum": ["blocking", "follow_up", "info"]},
-                    "message": {"type": "string"},
-                    "paths": {"type": "array", "items": {"type": "string"}},
-                    "expected_action": {"type": "string"},
-                },
-                "required": ["id", "severity", "message"],
-                "additionalProperties": False,
-            },
-        ]
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "severity": {"type": "string", "enum": ["blocking", "follow_up", "info"]},
+            "message": {"type": "string"},
+            "paths": {"type": "array", "items": {"type": "string"}},
+            "expected_action": {"type": "string"},
+        },
+        "required": ["id", "severity", "message", "paths", "expected_action"],
+        "additionalProperties": False,
     }
 
 
 def tools() -> list[dict[str, Any]]:
     return [
-        {"name": "prepare", "description": "Prepare a bounded change.", "inputSchema": _schema({"task": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}, "required_validations": {"type": "array", "items": {"type": "string"}}}, ["task"])},
-        {"name": "revise", "description": "Revise inside the current segment without resetting its budget.", "inputSchema": _schema({"task": {"type": "string"}, "add_files": {"type": "array", "items": {"type": "string"}}, "remove_files": {"type": "array", "items": {"type": "string"}}, "add_required_validations": {"type": "array", "items": {"type": "string"}}, "remove_required_validations": {"type": "array", "items": {"type": "string"}}})},
-        {"name": "split", "description": "Create a smaller child segment and retain approved parent receipts.", "inputSchema": _schema({"task": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}}, ["task", "files"])},
-        {"name": "reopen", "description": "Reopen for a concrete new code defect. Unchanged approved code enters operational verification instead.", "inputSchema": _schema({"reason": {"type": "string"}}, ["reason"])},
-        {"name": "external_acknowledge", "description": "Acknowledge genuinely external stable worktree changes.", "inputSchema": _schema({"files": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}, ["files", "reason"])},
-        {"name": "authorize", "description": "Record explicit authorization only for a genuine user decision gate.", "inputSchema": _schema({"gates": {"type": "array", "items": {"type": "string"}}, "all": {"type": "boolean", "default": False}})},
-        {"name": "context", "description": "Return direct live-code context when relevant.", "inputSchema": _schema({"query": {"type": "string"}}, ["query"])},
-        {"name": "check", "description": "Run the deterministic closure gate.", "inputSchema": _schema()},
-        {"name": "validate", "description": "Run targeted or final validation with scoped coverage.", "inputSchema": _schema({"command": {"type": "array", "items": {"type": "string"}}, "timeout": {"type": "integer", "minimum": 1}, "background": {"type": "boolean", "default": False}, "covers": {"type": "array", "items": {"type": "string"}}, "phase": {"type": "string", "enum": ["targeted", "final"], "default": "targeted"}}, ["command"])},
-        {"name": "validation_status", "description": "Read background validation status without waiting.", "inputSchema": _schema({"validation_id": {"type": "string"}}, ["validation_id"])},
-        {"name": "validation_wait", "description": "Wait inside Tide for a background validation. Do not use shell sleep.", "inputSchema": _schema({"validation_id": {"type": "string"}, "wait_seconds": {"type": "integer", "minimum": 1, "maximum": 60, "default": 20}}, ["validation_id"])},
-        {"name": "validation_log", "description": "Read a saved validation log only when compact evidence is insufficient.", "inputSchema": _schema({"log_id": {"type": "string"}}, ["log_id"])},
-        {"name": "review_packet", "description": "Create or reuse a validated incremental review packet.", "inputSchema": _schema({"full": {"type": "boolean", "default": False}, "full_reason": {"type": "string"}})},
-        {"name": "review_get", "description": "Read a review packet and submission token.", "inputSchema": _schema({"review_id": {"type": "string"}}, ["review_id"])},
-        {"name": "review_submit", "description": "Submit verdict with complete structured findings.", "inputSchema": _schema({"review_id": {"type": "string"}, "submission_token": {"type": "string"}, "approved": {"type": "boolean"}, "findings": {"type": "array", "items": _finding_schema()}}, ["review_id", "submission_token", "approved"])},
-        {"name": "operational_verify", "description": "Record rebuild, restart, health, queue, worker, or smoke checks without reopening review.", "inputSchema": _schema({"name": {"type": "string"}, "passed": {"type": "boolean"}, "details": {"type": "string"}}, ["name", "passed"])},
-        {"name": "resume", "description": "Load the compact current checkpoint in a fresh session.", "inputSchema": _schema()},
-        {"name": "handoff", "description": "Return an explicit compact checkpoint for another session or agent.", "inputSchema": _schema()},
-        {"name": "lock_list", "description": "List Module Locks.", "inputSchema": _schema()},
-        {"name": "lock_template", "description": "Generate a Module Lock draft.", "inputSchema": _schema({"scope": {"type": "string"}, "name": {"type": "string"}, "criticality": {"type": "string", "default": "production"}}, ["scope", "name"])},
-        {"name": "status", "description": "Show compact lifecycle, evidence, blockers, receipts, and next action.", "inputSchema": _schema()},
+        {"name": "resume", "description": "Load the current task checkpoint. Call first in every new agent session.", "inputSchema": _schema()},
+        {"name": "prepare", "description": "Prepare a new bounded task only when no active task exists.", "inputSchema": _schema({"task": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}, "required_validations": {"type": "array", "items": {"type": "string"}}}, ["task"])},
+        {"name": "revise", "description": "Adjust the current task boundary or validation plan while preserving current evidence.", "inputSchema": _schema({"task": {"type": "string"}, "add_files": {"type": "array", "items": {"type": "string"}}, "remove_files": {"type": "array", "items": {"type": "string"}}, "add_required_validations": {"type": "array", "items": {"type": "string"}}, "remove_required_validations": {"type": "array", "items": {"type": "string"}}})},
+        {"name": "split", "description": "Optionally narrow a non-converging task to a smaller child segment.", "inputSchema": _schema({"task": {"type": "string"}, "files": {"type": "array", "items": {"type": "string"}}}, ["task", "files"])},
+        {"name": "reopen", "description": "Reopen approved work for a verified defect or enter operational verification.", "inputSchema": _schema({"reason": {"type": "string"}, "code_change_required": {"type": "boolean", "default": False}}, ["reason"])},
+        {"name": "validate", "description": "Run targeted or final validation with explicit file coverage.", "inputSchema": _schema({"command": {"type": "array", "items": {"type": "string"}}, "timeout": {"type": "integer", "minimum": 1}, "background": {"type": "boolean", "default": False}, "covers": {"type": "array", "items": {"type": "string"}}, "phase": {"type": "string", "enum": ["targeted", "final"], "default": "targeted"}}, ["command"])},
+        {"name": "validation_wait", "description": "Wait inside Tide for a background validation.", "inputSchema": _schema({"validation_id": {"type": "string"}, "wait_seconds": {"type": "integer", "minimum": 1, "maximum": 60, "default": 20}}, ["validation_id"])},
+        {"name": "validation_log", "description": "Read a saved validation log by log_id or validation_id.", "inputSchema": _schema({"log_id": {"type": "string"}}, ["log_id"])},
+        {"name": "convergence", "description": "Record investigation progress or apply the user's continue/stop decision.", "inputSchema": _schema({"summary": {"type": "string"}, "new_evidence": {"type": "boolean", "default": False}, "root_cause_known": {"type": "boolean"}, "next_step": {"type": "string"}, "decision": {"type": "string", "enum": ["continue_one_cycle", "stop_and_report"]}})},
+        {"name": "review_packet", "description": "Create or reuse a validated review packet and return the selected reviewer.", "inputSchema": _schema({"full": {"type": "boolean", "default": False}, "full_reason": {"type": "string"}})},
+        {"name": "review_get", "description": "Read a review packet and its one-time submission token.", "inputSchema": _schema({"review_id": {"type": "string"}}, ["review_id"])},
+        {"name": "review_submit", "description": "Submit the independent reviewer verdict.", "inputSchema": _schema({"review_id": {"type": "string"}, "submission_token": {"type": "string"}, "approved": {"type": "boolean"}, "findings": {"type": "array", "items": _finding_schema()}}, ["review_id", "submission_token", "approved", "findings"])},
+        {"name": "operational_verify", "description": "Record rebuild, health, worker, queue, or smoke checks without reopening approved code.", "inputSchema": _schema({"name": {"type": "string"}, "passed": {"type": "boolean"}, "details": {"type": "string"}}, ["name", "passed"])},
+        {"name": "authorize", "description": "Record explicit authorization for a genuine pending user decision.", "inputSchema": _schema({"gates": {"type": "array", "items": {"type": "string"}}, "all": {"type": "boolean", "default": False}})},
+        {"name": "check", "description": "Evaluate the single deterministic quality and closure state.", "inputSchema": _schema()},
+        {"name": "commit_check", "description": "Required gate before git commit. Verifies approval, evidence, and exact staging.", "inputSchema": _schema()},
     ]
 
 
@@ -102,6 +84,16 @@ def _tool_schema(name: str) -> dict[str, Any]:
     for tool in tools():
         if tool["name"] == name:
             return tool["inputSchema"]
+    compatibility = {
+        "validation_status": _schema({"validation_id": {"type": "string"}}, ["validation_id"]),
+        "handoff": _schema(),
+        "status": _schema(),
+        "external_acknowledge": _schema({"files": {"type": "array", "items": {"type": "string"}}, "reason": {"type": "string"}}, ["files", "reason"]),
+        "abandon": _schema({"reason": {"type": "string"}}, ["reason"]),
+        "model_policy": _schema({"phase": {"type": "string"}, "strategy": {"type": "string"}, "review_mode": {"type": "string"}, "failed_attempts": {"type": "integer"}, "root_cause_known": {"type": "boolean"}}),
+    }
+    if name in compatibility:
+        return compatibility[name]
     raise TideError(f"unknown tool: {name}")
 
 
@@ -115,25 +107,28 @@ def _validate_arguments(name: str, arguments: dict[str, Any]) -> None:
         raise TideError(f"missing arguments for {name}: {', '.join(missing)}")
 
 
+def _attach_policy(value: Any, *, phase: str | None = None, review_mode: str | None = None) -> Any:
+    if not isinstance(value, dict):
+        return value
+    return {
+        **value,
+        "model_policy": model_policy(project_root(), phase=phase, review_mode=review_mode),
+    }
+
+
 def call_tool(name: str, arguments: dict[str, Any]) -> Any:
     _validate_arguments(name, arguments)
     root = project_root()
+    if name == "resume":
+        return _attach_policy(resume(root))
     if name == "prepare":
-        return prepare(root, str(arguments["task"]), list(arguments.get("files") or []), list(arguments.get("required_validations") or []))
+        return _attach_policy(prepare(root, str(arguments["task"]), list(arguments.get("files") or []), list(arguments.get("required_validations") or [])), phase="planning")
     if name == "revise":
-        return revise(root, task=str(arguments["task"]) if arguments.get("task") is not None else None, add_files=list(arguments.get("add_files") or []), remove_files=list(arguments.get("remove_files") or []), add_required_validations=list(arguments.get("add_required_validations") or []), remove_required_validations=list(arguments.get("remove_required_validations") or []))
+        return _attach_policy(revise(root, task=str(arguments["task"]) if arguments.get("task") is not None else None, add_files=list(arguments.get("add_files") or []), remove_files=list(arguments.get("remove_files") or []), add_required_validations=list(arguments.get("add_required_validations") or []), remove_required_validations=list(arguments.get("remove_required_validations") or [])), phase="implementation")
     if name == "split":
-        return split(root, task=str(arguments["task"]), files=list(arguments["files"]))
+        return _attach_policy(split(root, task=str(arguments["task"]), files=list(arguments["files"])), phase="implementation")
     if name == "reopen":
-        return reopen(root, reason=str(arguments["reason"]))
-    if name == "external_acknowledge":
-        return external_acknowledge(root, list(arguments["files"]), reason=str(arguments["reason"]))
-    if name == "authorize":
-        return authorize(root, list(arguments.get("gates") or []), all_gates=bool(arguments.get("all", False)))
-    if name == "context":
-        return query_context(root, str(arguments["query"]))
-    if name == "check":
-        return check(root)
+        return _attach_policy(reopen(root, reason=str(arguments["reason"]), code_change_required=bool(arguments.get("code_change_required", False))), phase="correction")
     if name == "validate":
         command = list(arguments["command"])
         timeout = int(arguments.get("timeout", 300))
@@ -142,67 +137,69 @@ def call_tool(name: str, arguments: dict[str, Any]) -> Any:
         if bool(arguments.get("background", False)):
             return start_validation(root, command, timeout, covers=covers, phase=phase)
         return record_validation(root, command, timeout, covers=covers, phase=phase)
-    if name == "validation_status":
-        return validation_status(root, str(arguments["validation_id"]))
     if name == "validation_wait":
         return validation_wait(root, str(arguments["validation_id"]), int(arguments.get("wait_seconds", 20)))
     if name == "validation_log":
         return validation_log(root, str(arguments["log_id"]))
+    if name == "convergence":
+        return _attach_policy(convergence(root, summary=str(arguments.get("summary") or "") or None, new_evidence=bool(arguments.get("new_evidence", False)), root_cause_known=arguments.get("root_cause_known"), next_step=str(arguments.get("next_step") or "") or None, decision=str(arguments.get("decision") or "") or None), phase="investigation")
     if name == "review_packet":
-        return create_review_packet(root, full=bool(arguments.get("full", False)), full_reason=str(arguments.get("full_reason") or "") or None)
+        value = create_review_packet(root, full=bool(arguments.get("full", False)), full_reason=str(arguments.get("full_reason") or "") or None)
+        return _attach_policy(value, phase="review", review_mode=str(value.get("review_mode") or "incremental"))
     if name == "review_get":
         return get_review_packet(root, str(arguments["review_id"]))
     if name == "review_submit":
-        return submit_review(root, review_id=str(arguments["review_id"]), submission_token=str(arguments["submission_token"]), approved=bool(arguments["approved"]), findings=list(arguments.get("findings") or []))
+        try:
+            return submit_review(root, review_id=str(arguments["review_id"]), submission_token=str(arguments["submission_token"]), approved=bool(arguments["approved"]), findings=list(arguments.get("findings") or []))
+        except TideError as exc:
+            if "already has a submitted verdict" not in str(exc):
+                raise
+            packet = read_review_packet(root, str(arguments["review_id"]))
+            submission = packet.get("submission")
+            if not isinstance(submission, dict):
+                raise
+            return {**submission, "verdict_submitted": True, "idempotent": True}
     if name == "operational_verify":
         return operational_verify(root, name=str(arguments["name"]), passed=bool(arguments["passed"]), details=str(arguments.get("details") or ""))
-    if name == "resume":
-        return resume(root)
+    if name == "authorize":
+        return authorize(root, list(arguments.get("gates") or []), all_gates=bool(arguments.get("all", False)))
+    if name == "check" or name == "status":
+        return _attach_policy(check(root))
+    if name == "commit_check":
+        return commit_check(root)
+    if name == "validation_status":
+        return validation_status(root, str(arguments["validation_id"]))
     if name == "handoff":
         return handoff(root)
-    if name == "lock_list":
-        return [{"name": lock.name, "file": str(lock.file.relative_to(root)), "paths": list(lock.paths), "criticality": lock.criticality, "review_required": lock.review_required} for lock in load_locks(root)]
-    if name == "lock_template":
-        return {"content": render_draft(name=str(arguments["name"]), scope=str(arguments["scope"]), criticality=str(arguments.get("criticality", "production")))}
-    if name == "status":
-        return preparation_report(root)
+    if name == "external_acknowledge":
+        return external_acknowledge(root, list(arguments["files"]), reason=str(arguments["reason"]))
+    if name == "abandon":
+        return abandon(root, reason=str(arguments["reason"]))
+    if name == "model_policy":
+        return model_policy(root, phase=str(arguments.get("phase") or "") or None, strategy=str(arguments.get("strategy") or "") or None, review_mode=str(arguments.get("review_mode") or "") or None, failed_attempts=int(arguments["failed_attempts"]) if arguments.get("failed_attempts") is not None else None, root_cause_known=arguments.get("root_cause_known"))
     raise TideError(f"unknown tool: {name}")
-
-
-def _brief(values: list[Any] | None, limit: int = 2) -> str:
-    items = [str(value) for value in (values or []) if str(value)]
-    if not items:
-        return "none"
-    return "; ".join(items[:limit]) + (f" (+{len(items)-limit})" if len(items) > limit else "")
 
 
 def _tool_summary(name: str, value: Any) -> str:
     if not isinstance(value, dict):
         return f"{name}: completed"
-    if name in {"prepare", "revise", "split", "reopen", "status"}:
-        resume_value = value.get("resume") if isinstance(value.get("resume"), dict) else {}
-        return f"{name}: segment={value.get('segment_index', resume_value.get('segment'))}; lifecycle={value.get('lifecycle')}; split={bool(value.get('split_required'))}; next={resume_value.get('next_action') or value.get('next_action')}"
+    if name in {"resume", "prepare", "revise", "split", "reopen", "check", "status", "convergence"}:
+        return f"{name}: lifecycle={value.get('lifecycle')}; ready={bool(value.get('ready'))}; blocker={value.get('primary_blocker') or 'none'}; next={value.get('next_action')}"
     if name == "validate":
         if value.get("reused"):
-            return f"validate: reused current {value.get('phase')} evidence"
+            return "validate: reused current final evidence"
         if value.get("status") in {"starting", "running"}:
             return f"validate: running as {value.get('validation_id')}"
-        return f"validate: {'passed' if value.get('passed') else 'failed'}; phase={value.get('phase')}; log={value.get('log_id', 'pending')}"
-    if name in {"validation_status", "validation_wait"}:
+        return f"validate: {'passed' if value.get('passed') else 'failed'}; log={value.get('log_id', 'pending')}"
+    if name == "validation_wait":
         passed = value.get("passed")
-        return f"{name}: {value.get('status')}; passed={'pending' if passed is None else str(bool(passed)).lower()}"
+        return f"validation_wait: {value.get('status')}; passed={'pending' if passed is None else str(bool(passed)).lower()}; log={value.get('log_id', 'pending')}"
     if name == "review_packet":
-        return f"review_packet: {value.get('review_id')}; mode={value.get('review_mode')}; files={len(value.get('files') or [])}; reused={bool(value.get('reused'))}"
+        return f"review_packet: {value.get('review_id')}; reviewer={value.get('reviewer_agent')}; files={len(value.get('files') or [])}"
     if name == "review_submit":
-        return f"review_submit: {'approved' if value.get('approved') else 'blocked'}; blocking={len(value.get('blocking_findings') or [])}; follow_up={len(value.get('follow_up_findings') or [])}"
-    if name == "check":
-        return f"check: {'ready' if value.get('ready') else 'blocked'}; lifecycle={value.get('lifecycle')}; blocker={value.get('primary_blocker') or 'none'}; next={value.get('next_action')}"
-    if name in {"resume", "handoff"}:
-        return f"{name}: segment={value.get('segment')}; lifecycle={value.get('lifecycle')}; blockers={len((value.get('review') or {}).get('blocking') or [])}; next={value.get('next_action')}"
-    if name == "operational_verify":
-        return f"operational_verify: {value.get('name')}; passed={bool(value.get('passed'))}"
-    if name == "external_acknowledge":
-        return f"external_acknowledge: {len(value.get('acknowledged') or [])} file(s)"
+        return f"review_submit: {'approved' if value.get('approved') else 'blocked'}; blocking={len(value.get('blocking_findings') or [])}; submitted=true"
+    if name == "commit_check":
+        return f"commit_check: {'allowed' if value.get('allowed') else 'blocked'}; blocker={(value.get('blockers') or ['none'])[0]}; next={value.get('next_action')}"
     if name == "validation_log":
         return f"validation_log: {value.get('log_id')}"
     return f"{name}: completed"
@@ -220,7 +217,7 @@ def handle(request: dict[str, Any]) -> None:
     request_id = request.get("id")
     method = request.get("method")
     if method == "initialize":
-        respond(request_id, result={"protocolVersion": "2025-03-26", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "tide", "version": "1.0.0"}, "instructions": INSTRUCTIONS})
+        respond(request_id, result={"protocolVersion": "2025-03-26", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "tide", "version": __version__}, "instructions": INSTRUCTIONS})
         return
     if method == "tools/list":
         respond(request_id, result={"tools": tools()})
@@ -246,8 +243,7 @@ def handle(request: dict[str, Any]) -> None:
             parsed = urlparse(uri)
             if parsed.scheme != "tide" or parsed.netloc != "reviews" or not parsed.path.strip("/"):
                 raise TideError(f"unknown resource: {uri}")
-            review_id = parsed.path.strip("/")
-            packet = get_review_packet(project_root(), review_id)
+            packet = get_review_packet(project_root(), parsed.path.strip("/"))
             respond(request_id, result={"contents": [{"uri": uri, "mimeType": "application/json", "text": json.dumps(packet, indent=2, ensure_ascii=False)}]})
         except Exception as exc:
             respond(request_id, error=str(exc))
