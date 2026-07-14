@@ -1,0 +1,18 @@
+name: Source Snapshot
+
+on:
+  push:
+    branches: [refactor/tide-consolidation]
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tide-source
+          path: |
+            .
+            !.git
+          include-hidden-files: true
